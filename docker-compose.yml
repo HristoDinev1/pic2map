@@ -1,0 +1,15 @@
+# Local development: PostgreSQL only.
+# AWS services (S3, Cognito, Lambda) are provisioned with OpenTofu in /infra.
+# For fully-local S3/Lambda you can swap in LocalStack, but the cloud path
+# is the intended deployment.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pic2map
+      POSTGRES_PASSWORD: pic2map
+      POSTGRES_DB: pic2map
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+volumes:
+  pgdata:

@@ -1,0 +1,32 @@
+{
+  "name": "pic2map-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aws-amplify/ui-react": "^6.1.12",
+    "aws-amplify": "^6.3.6",
+    "leaflet": "^1.9.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-leaflet": "^4.2.1",
+    "react-leaflet-cluster": "^2.1.0",
+    "react-router-dom": "^6.24.0"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.2"
+  }
+}

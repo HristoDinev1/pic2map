@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+.env
+*.zip
+infra/.terraform/
+infra/build/
+infra/*.tfstate*
+terraform.tfvars
