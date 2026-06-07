@@ -28,5 +28,5 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
   period              = 300
   statistic           = "Average"
   threshold           = 80
-  dimensions = { DBInstanceIdentifier = aws_db_instance.postgres.identifier }
+  dimensions = { DBInstanceIdentifier = aws_db_instance.mariadb.identifier }
 }

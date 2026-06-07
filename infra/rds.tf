@@ -1,12 +1,12 @@
 resource "aws_security_group" "rds" {
   name_prefix = "${var.project}-rds-"
   vpc_id      = aws_vpc.main.id
-  description = "Allow Postgres from Lambda + app SG"
+  description = "Allow MariaDB from Lambda + app SG"
 
   ingress {
-    description     = "Postgres from Lambda"
-    from_port       = 5432
-    to_port         = 5432
+    description     = "MariaDB from Lambda"
+    from_port       = 3306
+    to_port         = 3306
     protocol        = "tcp"
     security_groups = [aws_security_group.lambda.id, aws_security_group.app.id]
   }
@@ -18,10 +18,10 @@ resource "aws_security_group" "rds" {
   }
 }
 
-resource "aws_db_instance" "postgres" {
+resource "aws_db_instance" "mariadb" {
   identifier             = "${var.project}-${var.environment}"
-  engine                 = "postgres"
-  engine_version         = "16.3"
+  engine                 = "mariadb"
+  engine_version         = "11.4"
   instance_class         = var.db_instance_class
   allocated_storage      = 20
   max_allocated_storage  = 100
@@ -36,7 +36,7 @@ resource "aws_db_instance" "postgres" {
   deletion_protection    = var.environment == "prod"
   skip_final_snapshot    = var.environment != "prod"
   performance_insights_enabled = true
-  tags = { Name = "${var.project}-postgres" }
+  tags = { Name = "${var.project}-mariadb" }
 }
 
 # App security group (attach to ECS/EC2/App Runner running the API).

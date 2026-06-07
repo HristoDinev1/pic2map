@@ -1,5 +1,5 @@
 output "media_bucket"            { value = aws_s3_bucket.media.bucket }
-output "rds_endpoint"            { value = aws_db_instance.postgres.endpoint }
+output "rds_endpoint"            { value = aws_db_instance.mariadb.endpoint }
 output "cognito_user_pool_id"    { value = aws_cognito_user_pool.main.id }
 output "cognito_client_id"       { value = aws_cognito_user_pool_client.web.id }
 output "cognito_domain"          { value = "${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com" }

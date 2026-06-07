@@ -35,7 +35,7 @@ resource "aws_lambda_function" "image_processor" {
   environment {
     variables = {
       S3_BUCKET    = aws_s3_bucket.media.bucket
-      DATABASE_URL = "postgres://${var.db_username}:${var.db_password}@${aws_db_instance.postgres.endpoint}/${var.db_name}"
+      DATABASE_URL = "mysql://${var.db_username}:${var.db_password}@${aws_db_instance.mariadb.endpoint}/${var.db_name}"
       DB_SSL       = "true"
     }
   }

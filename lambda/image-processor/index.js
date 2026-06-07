@@ -8,15 +8,15 @@
  *   2. Extract EXIF GPS (lat/lng) + capture date with `exifr`.
  *   3. Generate thumb (320w), medium (1024w), large (2048w) with `sharp`.
  *   4. Upload derivatives to S3 under thumbs/ medium/ large/.
- *   5. Update the photos row in RDS (PostgreSQL) inside the VPC.
+ *   5. Update the photos row in RDS (MySQL/MariaDB) inside the VPC.
  *
- * Env: S3_BUCKET, DATABASE_URL, DB_SSL
+ * Env: S3_BUCKET, DATABASE_URL (mysql://user:pass@host/db), DB_SSL
  * Logs go to CloudWatch automatically.
  */
 const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const exifr = require('exifr');
 const sharp = require('sharp');
-const { Client } = require('pg');
+const mysql = require('mysql2/promise');
 
 const REGION = process.env.AWS_REGION || 'eu-central-1';
 const BUCKET = process.env.S3_BUCKET;
@@ -51,11 +51,15 @@ async function extractGps(buffer) {
 }
 
 exports.handler = async (event) => {
-  const db = new Client({
-    connectionString: process.env.DATABASE_URL,
+  const dbUrl = new URL(process.env.DATABASE_URL);
+  const db = await mysql.createConnection({
+    host: dbUrl.hostname,
+    port: dbUrl.port || 3306,
+    user: decodeURIComponent(dbUrl.username),
+    password: decodeURIComponent(dbUrl.password),
+    database: dbUrl.pathname.replace(/^\//, ''),
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
   });
-  await db.connect();
 
   try {
     for (const record of event.Records) {
@@ -67,7 +71,7 @@ exports.handler = async (event) => {
       const photoId = parts[2].split('.')[0];
       console.log(JSON.stringify({ msg: 'processing', key, photoId }));
 
-      await db.query(`UPDATE photos SET process_state='PROCESSING' WHERE id=$1`, [photoId]);
+      await db.execute(`UPDATE photos SET process_state='PROCESSING' WHERE id=?`, [photoId]);
 
       try {
         const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
@@ -90,26 +94,27 @@ exports.handler = async (event) => {
           derived[s.name] = dKey;
         }
 
-        await db.query(
+        await db.execute(
           `UPDATE photos SET
-             s3_key_thumb=$2, s3_key_medium=$3, s3_key_large=$4,
-             width=$5, height=$6, size_bytes=$7,
-             latitude=COALESCE(latitude,$8), longitude=COALESCE(longitude,$9),
-             captured_at=COALESCE(captured_at,$10),
+             s3_key_thumb=?, s3_key_medium=?, s3_key_large=?,
+             width=?, height=?, size_bytes=?,
+             latitude=COALESCE(latitude,?), longitude=COALESCE(longitude,?),
+             captured_at=COALESCE(captured_at,?),
              process_state='READY', process_error=NULL
-           WHERE id=$1`,
+           WHERE id=?`,
           [
-            photoId, derived.thumb, derived.medium, derived.large,
+            derived.thumb, derived.medium, derived.large,
             meta.width ?? null, meta.height ?? null, buffer.length,
             gps.latitude, gps.longitude, gps.capturedAt,
+            photoId,
           ]
         );
         console.log(JSON.stringify({ msg: 'done', photoId, gps }));
       } catch (err) {
         console.error('processing failed', photoId, err);
-        await db.query(
-          `UPDATE photos SET process_state='FAILED', process_error=$2 WHERE id=$1`,
-          [photoId, String(err.message).slice(0, 480)]
+        await db.execute(
+          `UPDATE photos SET process_state='FAILED', process_error=? WHERE id=?`,
+          [String(err.message).slice(0, 480), photoId]
         );
       }
     }

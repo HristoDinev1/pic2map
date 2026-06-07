@@ -2,8 +2,10 @@ node_modules/
 dist/
 build/
 .env
+frontend/js/config.js
 *.zip
 infra/.terraform/
 infra/build/
 infra/*.tfstate*
 terraform.tfvars
+.claude

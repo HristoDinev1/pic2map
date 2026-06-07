@@ -1,15 +1,15 @@
-# Local development: PostgreSQL only.
-# AWS services (S3, Cognito, Lambda) are provisioned with OpenTofu in /infra.
-# For fully-local S3/Lambda you can swap in LocalStack, but the cloud path
-# is the intended deployment.
+# Local development: MariaDB only.
+# AWS services (S3, Cognito, Lambda) are provisioned with OpenTofu in /infra
+# and called directly from the PHP backend (see backend/src/S3.php, Cognito.php).
 services:
   db:
-    image: postgres:16
+    image: mariadb:11
     environment:
-      POSTGRES_USER: pic2map
-      POSTGRES_PASSWORD: pic2map
-      POSTGRES_DB: pic2map
-    ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+      MARIADB_USER: pic2map
+      MARIADB_PASSWORD: pic2map
+      MARIADB_DATABASE: pic2map
+      MARIADB_ROOT_PASSWORD: pic2map
+    ports: ["3306:3306"]
+    volumes: ["dbdata:/var/lib/mysql"]
 volumes:
-  pgdata:
+  dbdata:
