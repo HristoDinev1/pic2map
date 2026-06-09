@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   username      VARCHAR(190) NOT NULL UNIQUE,
   email         VARCHAR(190) NOT NULL UNIQUE,
   role          ENUM('USER','MODERATOR','ADMIN') NOT NULL DEFAULT 'USER',
+  -- Local auth driver only (NULL for Cognito-managed accounts)
+  password_hash VARCHAR(255),
   is_active     TINYINT(1)   NOT NULL DEFAULT 1,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

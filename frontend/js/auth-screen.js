@@ -1,12 +1,12 @@
 import { el, mount, clear } from './dom.js';
-import { cognito } from './cognito.js';
+import { auth } from './auth.js';
 import { authStore } from './auth-store.js';
 
 /**
  * Renders a sign-in / sign-up / confirm-account screen into `node` and resolves
  * once the user is authenticated. Mirrors what @aws-amplify/ui-react's
  * <Authenticator> used to gate the app with — reimplemented with plain fetch
- * calls to Cognito (see cognito.js) since external UI libraries aren't allowed.
+ * calls to Cognito (see auth.js) since external UI libraries aren't allowed.
  */
 export function renderAuthScreen(node, onSignedIn) {
   let mode = 'signIn'; // signIn | signUp | confirm | forgot | reset
@@ -58,15 +58,15 @@ export function renderAuthScreen(node, onSignedIn) {
 
     const links = el('div', { class: 'stack mt-2', style: 'font-size:0.8125rem' });
     if (mode === 'signIn') {
-      links.append(
-        el('button', { class: 'btn-text', onclick: () => switchMode('signUp') }, "Don't have an account? Sign up"),
-        el('button', { class: 'btn-text', onclick: () => switchMode('forgot') }, 'Forgot your password?')
-      );
+      links.append(el('button', { class: 'btn-text', onclick: () => switchMode('signUp') }, "Don't have an account? Sign up"));
+      if (auth.supportsPasswordReset) {
+        links.append(el('button', { class: 'btn-text', onclick: () => switchMode('forgot') }, 'Forgot your password?'));
+      }
     } else if (mode === 'signUp') {
-      links.append(
-        el('button', { class: 'btn-text', onclick: () => switchMode('signIn') }, 'Already have an account? Sign in'),
-        el('button', { class: 'btn-text', onclick: () => switchMode('confirm') }, 'Have a confirmation code already?')
-      );
+      links.append(el('button', { class: 'btn-text', onclick: () => switchMode('signIn') }, 'Already have an account? Sign in'));
+      if (auth.supportsConfirmation) {
+        links.append(el('button', { class: 'btn-text', onclick: () => switchMode('confirm') }, 'Have a confirmation code already?'));
+      }
     } else if (mode === 'confirm') {
       links.append(
         el('button', { class: 'btn-text', onclick: resend }, 'Resend confirmation code'),
@@ -91,7 +91,7 @@ export function renderAuthScreen(node, onSignedIn) {
 
   async function resend() {
     if (!pendingUsername) { error = 'Enter your username first, then request a code.'; draw(); return; }
-    try { await cognito.resendCode(pendingUsername); message = 'Confirmation code re-sent — check your email.'; error = ''; }
+    try { await auth.resendCode(pendingUsername); message = 'Confirmation code re-sent — check your email.'; error = ''; }
     catch (e) { error = e.message; }
     draw();
   }
@@ -102,22 +102,27 @@ export function renderAuthScreen(node, onSignedIn) {
     const v = values(form);
     try {
       if (mode === 'signIn') {
-        await cognito.signIn(v.username, v.password);
+        await auth.signIn(v.username, v.password);
         await authStore.refresh();
         onSignedIn();
         return;
       }
       if (mode === 'signUp') {
-        await cognito.signUp(v.username, v.password, v.email);
+        const result = await auth.signUp(v.username, v.password, v.email);
         pendingUsername = v.username;
-        mode = 'confirm';
-        message = 'Account created — enter the confirmation code we emailed you.';
+        if (result && result.autoConfirmed) {
+          mode = 'signIn';
+          message = 'Account created — sign in below.';
+        } else {
+          mode = 'confirm';
+          message = 'Account created — enter the confirmation code we emailed you.';
+        }
         draw();
         return;
       }
       if (mode === 'confirm') {
         const username = pendingUsername || v.username;
-        await cognito.confirmSignUp(username, v.code);
+        await auth.confirmSignUp(username, v.code);
         pendingUsername = username;
         mode = 'signIn';
         message = 'Account confirmed — sign in below.';
@@ -125,7 +130,7 @@ export function renderAuthScreen(node, onSignedIn) {
         return;
       }
       if (mode === 'forgot') {
-        await cognito.forgotPassword(v.username);
+        await auth.forgotPassword(v.username);
         pendingUsername = v.username;
         mode = 'reset';
         message = 'Check your email for a reset code.';
@@ -133,7 +138,7 @@ export function renderAuthScreen(node, onSignedIn) {
         return;
       }
       if (mode === 'reset') {
-        await cognito.confirmForgotPassword(pendingUsername, v.code, v.password);
+        await auth.confirmForgotPassword(pendingUsername, v.code, v.password);
         mode = 'signIn';
         message = 'Password updated — sign in with your new password.';
         draw();

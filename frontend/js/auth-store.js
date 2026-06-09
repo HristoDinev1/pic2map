@@ -1,7 +1,7 @@
 // Tiny pub/sub store mirroring the React AuthContext: holds the synced
 // `/auth/me` profile and notifies subscribers (navbar, route guards) on change.
 import { api } from './api.js';
-import { cognito } from './cognito.js';
+import { auth } from './auth.js';
 
 let profile = null;
 let loading = true;
@@ -27,7 +27,7 @@ export const authStore = {
   },
 
   async logout() {
-    await cognito.signOut();
+    await auth.signOut();
     profile = null;
     notify();
   },

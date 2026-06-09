@@ -26,7 +26,25 @@ $sql = implode("\n", $lines);
 
 foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
     if ($statement === '') continue;
+    // schema.sql contains one non-CREATE statement (the albums→photos cover FK,
+    // which must come after both tables exist). ALTERs aren't naturally
+    // idempotent, so skip them when the constraint is already in place.
+    if (preg_match('/ADD CONSTRAINT (\w+)/i', $statement, $m)) {
+        $exists = $pdo->query("SELECT COUNT(*) FROM information_schema.table_constraints
+            WHERE constraint_schema = '$dbName' AND constraint_name = '{$m[1]}'")->fetchColumn();
+        if ((int) $exists > 0) continue;
+    }
     $pdo->exec($statement);
 }
 
-echo "✓ schema applied\n";
+
+
+// Idempotent column upgrades for databases created before the local-auth driver.
+$col = $pdo->query("SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = '$dbName' AND table_name = 'users' AND column_name = 'password_hash'")->fetchColumn();
+if ((int) $col === 0) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL AFTER role');
+    echo "+ users.password_hash column added\n";
+}
+
+echo "\xE2\x9C\x93 schema applied\n";

@@ -41,7 +41,7 @@ return function (Router $r): void {
             [$photoId, $user['id'], $title ?? $filename, $key, $contentType]
         );
 
-        Http::json(['photoId' => $photoId, 'key' => $key, 'uploadUrl' => S3::presignUpload($key, $contentType)], 201);
+        Http::json(['photoId' => $photoId, 'key' => $key, 'uploadUrl' => Storage::presignUpload($key, $contentType, $photoId)], 201);
     });
 
     /* ---- 2. personal gallery (own photos, any status) -------------------- */
@@ -108,10 +108,10 @@ return function (Router $r): void {
     $r->delete('/photos/:id', function (array $params) use ($ownedPhoto) {
         $user = Auth::authenticate();
         $p = $ownedPhoto($params['id'], $user);
-        S3::deleteObject($p['s3_key_original']);
-        S3::deleteObject($p['s3_key_thumb']);
-        S3::deleteObject($p['s3_key_medium']);
-        S3::deleteObject($p['s3_key_large']);
+        Storage::deleteObject($p['s3_key_original']);
+        Storage::deleteObject($p['s3_key_thumb']);
+        Storage::deleteObject($p['s3_key_medium']);
+        Storage::deleteObject($p['s3_key_large']);
         Db::exec('DELETE FROM photos WHERE id = ?', [$params['id']]);
         Http::noContent();
     });

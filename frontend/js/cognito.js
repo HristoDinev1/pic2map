@@ -45,6 +45,9 @@ function fromAuthResult(username, result) {
 }
 
 export const cognito = {
+  supportsConfirmation: true,
+  supportsPasswordReset: true,
+
   /** Create an account. Email is required (it's the username attribute). */
   async signUp(username, password, email) {
     await call('SignUp', {

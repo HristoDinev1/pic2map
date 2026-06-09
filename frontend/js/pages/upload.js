@@ -77,12 +77,13 @@ export function renderUploadPage(node) {
       items.push(item);
       item.row = buildRow(item);
       list.appendChild(item.row.root);
-      // Detect GPS without blocking the UI.
-      readExifGps(file).then((gps) => {
+      // Detect GPS without blocking the UI (submit awaits this promise so a
+      // fast click can never race past the EXIF read).
+      item.gpsPromise = readExifGps(file).then((gps) => {
         item.gps = gps;
         item.row.setGps(gps);
         refreshControls();
-      });
+      }).catch(() => {});
     }
     refreshControls();
   }
@@ -158,10 +159,27 @@ export function renderUploadPage(node) {
       item.row.lock();
       item.row.setStatus('Uploading…');
       try {
+        if (item.gpsPromise) await item.gpsPromise; // ensure EXIF GPS is known
         item.photoId = await uploadPhoto(item.file, item.title || item.file.name, (f) => item.row.setProgress(f));
         item.status = 'processing';
         item.row.hideProgress();
-        item.row.setStatus('Uploaded ✓ — processing (EXIF + thumbnails)…', 'success');
+        // Geotag right away from the EXIF GPS we already read in the browser —
+        // the photo appears on the map immediately instead of waiting on (or
+        // depending on) the server-side Lambda to extract it.
+        if (item.gps) {
+          try {
+            await api.put(`/photos/${item.photoId}/gps`, {
+              latitude: item.gps.latitude,
+              longitude: item.gps.longitude,
+            });
+            item.row.setStatus('Uploaded ✓ — 📍 on the map; building thumbnails…', 'success');
+          } catch {
+            // Non-fatal: the Lambda extracts GPS server-side as a fallback.
+            item.row.setStatus('Uploaded ✓ — processing (EXIF + thumbnails)…', 'success');
+          }
+        } else {
+          item.row.setStatus('Uploaded ✓ — processing (EXIF + thumbnails)…', 'success');
+        }
         pollProcessing(item); // fire-and-forget; updates the row when ready
       } catch (e) {
         item.status = 'error';

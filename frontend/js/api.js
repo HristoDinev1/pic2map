@@ -1,9 +1,9 @@
-import { cognito } from './cognito.js';
+import { auth } from './auth.js';
 
 const BASE = window.PIC2MAP_CONFIG.apiBase;
 
 async function authHeader() {
-  const token = await cognito.idToken();
+  const token = await auth.idToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

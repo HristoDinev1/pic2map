@@ -33,7 +33,11 @@ if (Http::method() === 'OPTIONS') {
 }
 
 // Resolve the request path relative to this script, then strip a leading "/api".
-$scriptDir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+// Note: PHP's built-in server sets SCRIPT_NAME to the *request path* for URLs
+// ending in a known file extension (e.g. /api/media/x.jpg), so only treat it
+// as a mount prefix when it actually points at a PHP front controller.
+$scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
+$scriptDir = str_ends_with($scriptName, '.php') ? rtrim(dirname($scriptName), '/') : '';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 if ($scriptDir !== '' && str_starts_with($path, $scriptDir)) {
     $path = substr($path, strlen($scriptDir));
@@ -47,9 +51,33 @@ if ($path === '/health') {
     Http::json(['ok' => true, 'ts' => (int) (microtime(true) * 1000)]);
 }
 
+// Local-storage media serving: GET /media/{key with slashes}?e=expiry&s=hmac.
+// Handled before the router because storage keys contain "/" segments.
+if (str_starts_with($path, '/media/') && Http::method() === 'GET') {
+    $key = rawurldecode(substr($path, strlen('/media/')));
+    $exp = (int) ($_GET['e'] ?? 0);
+    $sig = (string) ($_GET['s'] ?? '');
+    try {
+        Storage::assertSafeKey($key);
+        if (!Token::verifyUrl($key, $exp, $sig)) {
+            Http::json(['error' => 'Invalid or expired media URL'], 403);
+        }
+        $file = Storage::localPath($key);
+        if (!is_file($file)) Http::json(['error' => 'Not found'], 404);
+        $mime = mime_content_type($file) ?: 'application/octet-stream';
+        header("Content-Type: $mime");
+        header('Content-Length: ' . (string) filesize($file));
+        header('Cache-Control: private, max-age=86400');
+        readfile($file);
+        exit;
+    } catch (HttpError $e) {
+        Http::json(['error' => $e->getMessage()], $e->status);
+    }
+}
+
 $router = new Router();
 foreach ([
-    'auth', 'photos', 'albums', 'map', 'search', 'moderation', 'admin', 'transfer',
+    'auth', 'photos', 'albums', 'map', 'search', 'moderation', 'admin', 'transfer', 'uploads',
 ] as $resource) {
     (require __DIR__ . "/../src/routes/$resource.php")($router);
 }

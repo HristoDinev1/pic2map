@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom, StubElement, findOne, findAll, settle } from './dom-stub.js';
+import { buildJpegWithGps } from './exif-fixture.js';
 
 // End-to-end (frontend) test of the upload flow:
 //   choose file → button enables → click Upload →
@@ -25,6 +26,9 @@ globalThis.fetch = async (url, init = {}) => {
   fetchLog.push({ url, init });
   if (url.endsWith('/photos/presign')) {
     return jsonResponse(201, { photoId: 'p1', key: 'originals/u/p1.jpg', uploadUrl: 'https://s3.test/upload/p1' });
+  }
+  if (url.endsWith('/photos/p1/gps')) {
+    return jsonResponse(200, { photo: { id: 'p1', latitude: 42.6977, longitude: 23.3219 } });
   }
   if (url.endsWith('/photos/p1')) {
     return jsonResponse(200, {
@@ -135,6 +139,52 @@ test('upload button works: presign → S3 PUT → READY status', async () => {
   assert.match(statusEl.textContent, /Ready — geotagged and on the map/);
   const mapBtn = findOne(node, (n) => n.tagName === 'BUTTON' && n.textContent === 'View on map');
   assert.ok(mapBtn, '"View on map" action rendered');
+
+  // 6. this file had no EXIF GPS, so the client must NOT push coordinates
+  assert.ok(!fetchLog.some((f) => f.url.endsWith('/photos/p1/gps')),
+    'no GPS write for a file without EXIF coordinates');
+});
+
+test('photo with EXIF GPS is auto-geotagged onto the map after upload', async () => {
+  fetchLog.length = 0;
+  xhrLog.length = 0;
+
+  const node = new StubElement('main');
+  renderUploadPage(node);
+
+  // A real GPS-tagged JPEG (42°41'51.72"N 23°19'18.84"E ≈ Sofia) built by hand.
+  const bytes = buildJpegWithGps();
+  const file = {
+    name: 'sofia.jpg', type: 'image/jpeg', size: bytes.byteLength,
+    arrayBuffer: async () => bytes,
+  };
+  const input = findOne(node, (n) => n.tagName === 'INPUT' && n.getAttribute('type') === 'file');
+  input.files = [file];
+  input.dispatchEvent({ type: 'change', target: input });
+  await settle();
+
+  // The browser-side EXIF reader detected the coordinates before upload
+  const badge = findOne(node, (n) => n.classList.contains('badge'));
+  assert.match(badge.textContent, /GPS found/i);
+
+  const uploadBtn = findOne(node, (n) => n.tagName === 'BUTTON' && /^Upload/.test(n.textContent));
+  uploadBtn.dispatchEvent({ type: 'click' });
+  await settle(20);
+
+  // The page pushed the EXIF coordinates to the API right after the S3 PUT,
+  // so the photo is on the map immediately — no dependency on the Lambda.
+  const gpsCall = fetchLog.find((f) => f.url.endsWith('/photos/p1/gps'));
+  assert.ok(gpsCall, 'PUT /photos/:id/gps called automatically');
+  assert.equal(gpsCall.init.method, 'PUT');
+  assert.equal(gpsCall.init.headers.Authorization, 'Bearer id-token-123');
+  const gpsBody = JSON.parse(gpsCall.init.body);
+  assert.ok(Math.abs(gpsBody.latitude - 42.6977) < 0.0001, `latitude ≈ 42.6977, got ${gpsBody.latitude}`);
+  assert.ok(Math.abs(gpsBody.longitude - 23.3219) < 0.0001, `longitude ≈ 23.3219, got ${gpsBody.longitude}`);
+
+  // And the GPS write happened after the upload itself
+  assert.equal(xhrLog.length, 1, 'original still uploaded to S3 first');
+  const statusEl = findOne(node, (n) => n.classList.contains('upload-status'));
+  assert.match(statusEl.textContent, /Ready — geotagged and on the map/);
 });
 
 test('upload failure shows an error and offers retry', async () => {

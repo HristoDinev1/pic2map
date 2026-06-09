@@ -93,20 +93,42 @@ cd frontend && npm test        # node --test "test/**/*.test.js"
 ```
 Covers: map projection math + clustering + fit-to-bounds, the hand-written EXIF GPS parser, the dom helper + hash router, and an end-to-end upload-page test that drives the real upload button against stubbed `fetch`/`XMLHttpRequest` (presign → S3 PUT with progress → processing poll → "Ready" state, plus failure/retry and non-image rejection paths).
 
-## Local development (DB only)
+## Local development — fully self-hosted (no AWS)
+The app now ships with **local drivers** for everything AWS used to do, selected
+via env (`AUTH_DRIVER` / `STORAGE_DRIVER`, default `auto` → local when no real
+AWS values are configured):
+
+| Concern        | AWS driver (original)         | Local driver (new)                                   |
+|----------------|-------------------------------|------------------------------------------------------|
+| Accounts/login | Cognito (RS256 JWT)           | `/auth/register|login|refresh`, `password_hash`, hand-rolled HMAC tokens (`Token.php`) |
+| File storage   | S3 presigned PUT/GET          | signed upload + `/media/…` URLs served by the backend (`Storage.php`) |
+| GPS+thumbnails | image-processor Lambda        | PHP `exif_read_data` + GD, synchronous on upload (`ImageProcessor.php`) |
+
 ```bash
-docker compose up -d                 # MariaDB on :3306
-cd backend && php scripts/migrate.php && php -S localhost:4000 -t public public/router.php
+docker compose up -d                 # MariaDB on :3306 (or any local MySQL/MariaDB)
+cd backend && cp .env.example .env   # defaults are local-mode ready
+php scripts/migrate.php              # idempotent — safe to re-run
+PHP_CLI_SERVER_WORKERS=4 php -S localhost:4000 -t public public/router.php
+# frontend: cd frontend/js && cp config.example.js config.js   (authDriver: 'local')
+#           cd .. && php -S localhost:5173
 ```
+The first account registered becomes ADMIN. Switch any driver back to AWS by
+filling in the AWS values in `.env` (backend) and `cognito*` in `config.js`.
 
 ## Image / GPS pipeline
 1. Browser asks the API for a **presigned S3 PUT URL** (`POST /photos/presign`,
    signed server-side with a hand-rolled SigV4 implementation — `backend/src/Sigv4.php` /
    `S3.php`) and uploads the original directly to `originals/{userId}/{photoId}.ext`.
-2. The S3 `ObjectCreated` event triggers the **image-processor Lambda**, which:
-   extracts GPS lat/lng + capture date via `exifr`, generates `thumb`/`medium`/`large`
+2. **Instant geotag (browser):** before/while uploading, the frontend reads the
+   photo's EXIF GPS itself (`frontend/js/exif.js`, a hand-written JPEG/TIFF EXIF
+   parser — no library) and, right after the S3 PUT, pushes the coordinates via
+   `PUT /photos/:id/gps`. Geotagged photos therefore appear on the map
+   immediately, without waiting on (or even requiring) the Lambda.
+3. The S3 `ObjectCreated` event triggers the **image-processor Lambda**, which:
+   extracts GPS lat/lng + capture date via `exifr` (server-side fallback/confirmation),
+   generates `thumb`/`medium`/`large`
    with `sharp`, uploads them, and updates the `photos` row in the database.
-3. The map (`GET /map/photos`) renders markers from rows that have coordinates,
+4. The map (`GET /map/photos`) renders markers from rows that have coordinates,
    drawn by the custom map widget (`frontend/js/map/custom-map.js`) — raw OSM
    tiles positioned with hand-written Web-Mercator projection math, no map library.
    Users can add/modify/remove GPS later via `PUT /photos/:id/gps`.

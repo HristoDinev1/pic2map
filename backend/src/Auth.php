@@ -18,11 +18,25 @@ final class Auth
         return 'USER';
     }
 
+    /** Active auth driver: env AUTH_DRIVER=local|cognito, default auto-detect. */
+    public static function driver(): string
+    {
+        $configured = strtolower((string) Config::get('AUTH_DRIVER', 'auto'));
+        if ($configured === 'local' || $configured === 'cognito') return $configured;
+        $pool = (string) Config::get('COGNITO_USER_POOL_ID', '');
+        $looksReal = $pool !== '' && !str_contains($pool, 'xxxxxxxxx');
+        return $looksReal ? 'cognito' : 'local';
+    }
+
     /** Returns the synced local user row for the bearer token, or throws HttpError. */
     public static function authenticate(): array
     {
         $token = Http::bearerToken();
         if ($token === null) throw new HttpError(401, 'Missing bearer token');
+
+        if (self::driver() === 'local') {
+            return LocalAuth::verifyIdToken($token);
+        }
 
         try {
             $payload = Cognito::verifyIdToken($token);
