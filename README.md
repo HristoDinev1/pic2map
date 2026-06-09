@@ -86,6 +86,13 @@ cd .. && php -S localhost:5173                      # http://localhost:5173
 (Any static file server works — Apache, nginx, `python -m http.server`, etc.
 The app can even be opened from `file://` if `apiBase` points at a CORS-enabled API.)
 
+## Frontend tests
+Zero-dependency suite using Node's built-in `node:test` runner and a hand-written DOM stub (no jsdom, no npm installs):
+```bash
+cd frontend && npm test        # node --test "test/**/*.test.js"
+```
+Covers: map projection math + clustering + fit-to-bounds, the hand-written EXIF GPS parser, the dom helper + hash router, and an end-to-end upload-page test that drives the real upload button against stubbed `fetch`/`XMLHttpRequest` (presign → S3 PUT with progress → processing poll → "Ready" state, plus failure/retry and non-image rejection paths).
+
 ## Local development (DB only)
 ```bash
 docker compose up -d                 # MariaDB on :3306

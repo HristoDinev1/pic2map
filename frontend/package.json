@@ -1,0 +1,9 @@
+{
+  "name": "pic2map-frontend",
+  "private": true,
+  "type": "module",
+  "description": "Static vanilla-JS SPA. No dependencies, no build step — this file only enables `npm test` (Node's built-in test runner).",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}

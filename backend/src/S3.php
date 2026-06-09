@@ -14,6 +14,7 @@ final class S3
             Config::require('AWS_ACCESS_KEY_ID'),
             Config::require('AWS_SECRET_ACCESS_KEY'),
             Config::get('AWS_REGION', 'us-east-1'),
+            Config::get('AWS_SESSION_TOKEN') ?: null,
         );
     }
 

@@ -30,12 +30,32 @@ export const api = {
   authHeader,
 };
 
-/** Upload an original directly to S3 using a presigned PUT URL. */
-export async function uploadPhoto(file, title) {
+/**
+ * Upload an original directly to S3 using a presigned PUT URL.
+ * `onProgress(0..1)` reports byte-level upload progress (XHR is used because
+ * fetch() cannot observe request-body progress — still zero libraries).
+ */
+export async function uploadPhoto(file, title, onProgress) {
   const { photoId, uploadUrl } = await api.post('/photos/presign', {
     filename: file.name, contentType: file.type, title,
   });
-  const put = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
-  if (!put.ok) throw new Error('S3 upload failed');
+
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader('Content-Type', file.type);
+    if (xhr.upload && onProgress) {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      });
+    }
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+      ? resolve()
+      : reject(new Error(`S3 upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error('S3 upload failed (network error)'));
+    xhr.send(file);
+  });
+
+  if (onProgress) onProgress(1);
   return photoId;
 }
