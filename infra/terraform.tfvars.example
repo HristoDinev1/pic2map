@@ -1,5 +1,5 @@
 aws_region  = "eu-central-1"
 environment = "dev"
-db_password = "change-me-super-secret"
+db_password = "XXXXXXXXXXXXXX"
 cognito_callback_urls = ["http://localhost:5173/callback"]
 cognito_logout_urls   = ["http://localhost:5173"]

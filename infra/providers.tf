@@ -9,7 +9,7 @@ terraform {
   # backend "s3" {
   #   bucket = "pic2map-tfstate"
   #   key    = "pic2map/terraform.tfstate"
-  #   region = "eu-central-1"
+  #   region = "us-east-1"
   # }
 }
 

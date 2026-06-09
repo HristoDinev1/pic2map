@@ -12,7 +12,10 @@ resource "aws_cognito_user_pool" "main" {
   }
 
   account_recovery_setting {
-    recovery_mechanism { name = "verified_email" priority = 1 }
+    recovery_mechanism {
+      name     = "verified_email"
+      priority = 1
+    }
   }
 
   schema {
