@@ -13,13 +13,13 @@ final class S3
         return new Sigv4(
             Config::require('AWS_ACCESS_KEY_ID'),
             Config::require('AWS_SECRET_ACCESS_KEY'),
-            Config::get('AWS_REGION', 'eu-central-1'),
+            Config::get('AWS_REGION', 'us-east-1'),
         );
     }
 
     private static function host(): string
     {
-        return Config::require('S3_BUCKET') . '.s3.' . Config::get('AWS_REGION', 'eu-central-1') . '.amazonaws.com';
+        return Config::require('S3_BUCKET') . '.s3.' . Config::get('AWS_REGION', 'us-east-1') . '.amazonaws.com';
     }
 
     private static function uri(string $key): string

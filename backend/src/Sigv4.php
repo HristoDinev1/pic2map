@@ -36,7 +36,7 @@ final class Sigv4
 
     /**
      * Build a presigned URL valid for $expiresSeconds.
-     * $host e.g. "bucket.s3.eu-central-1.amazonaws.com", $canonicalUri e.g. "/originals/u/1.jpg".
+     * $host e.g. "bucket.s3.us-east-1.amazonaws.com", $canonicalUri e.g. "/originals/u/1.jpg".
      */
     public function presignUrl(
         string $method,

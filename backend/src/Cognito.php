@@ -12,7 +12,7 @@ final class Cognito
 {
     private static function region(): string
     {
-        return Config::get('AWS_REGION', 'eu-central-1');
+        return Config::get('AWS_REGION', 'us-east-1');
     }
 
     private static function userPoolId(): string

@@ -18,7 +18,7 @@ const exifr = require('exifr');
 const sharp = require('sharp');
 const mysql = require('mysql2/promise');
 
-const REGION = process.env.AWS_REGION || 'eu-central-1';
+const REGION = process.env.AWS_REGION || 'us-east-1';
 const BUCKET = process.env.S3_BUCKET;
 const s3 = new S3Client({ region: REGION });
 
