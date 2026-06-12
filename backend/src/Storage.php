@@ -16,10 +16,18 @@ final class Storage
     {
         $configured = strtolower((string) Config::get('STORAGE_DRIVER', 'auto'));
         if ($configured === 'local' || $configured === 's3') return $configured;
+        // Auto-detect: pick "s3" whenever a bucket is configured AND we have
+        // *some* way to authenticate — static keys OR an IAM role surfaced via
+        // the standard AWS env vars (ECS/Fargate, EC2 IMDS). Without this, a
+        // role-based deployment silently falls back to the local driver.
         $bucket = (string) Config::get('S3_BUCKET', '');
+        if ($bucket === '') return 'local';
         $key = (string) Config::get('AWS_ACCESS_KEY_ID', '');
-        $looksReal = $bucket !== '' && $key !== '' && !str_starts_with($key, 'XXXX');
-        return $looksReal ? 's3' : 'local';
+        $hasStaticKey = $key !== '' && !str_starts_with($key, 'XXXX');
+        $hasRole = (string) Config::get('AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', '') !== ''
+            || (string) Config::get('AWS_CONTAINER_CREDENTIALS_FULL_URI', '') !== ''
+            || (string) Config::get('AWS_EXECUTION_ENV', '') !== '';
+        return ($hasStaticKey || $hasRole) ? 's3' : 'local';
     }
 
     /** Absolute base URL of this API (used to build local upload/media URLs). */

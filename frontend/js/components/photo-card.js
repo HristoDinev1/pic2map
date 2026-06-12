@@ -3,8 +3,8 @@ import { el } from '../dom.js';
 /** Renders a single photo tile — port of components/PhotoCard.tsx. */
 export function photoCard(photo, onClick) {
   const img = photo.urls.thumb || photo.urls.medium || photo.urls.original;
-  const processing = photo.processState !== 'READY' && photo.processState !== 'ERROR';
-  const failed = photo.processState === 'ERROR';
+  const processing = photo.processState !== 'READY' && photo.processState !== 'FAILED';
+  const failed = photo.processState === 'FAILED';
   return el('button', { class: 'photo-card', onclick: onClick }, [
     el('div', { class: 'photo-thumb' }, [
       img

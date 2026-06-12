@@ -75,8 +75,14 @@ return function (Router $r): void {
     $r->delete('/admin/photos/:id', function (array $params) {
         $user = Auth::authenticate();
         Auth::requireRole($user, 'ADMIN');
-        $p = Db::one('SELECT id FROM photos WHERE id = ?', [$params['id']]);
+        $p = Db::one('SELECT * FROM photos WHERE id = ?', [$params['id']]);
         if (!$p) throw new HttpError(404, 'Photo not found');
+        // Mirror routes/photos.php — drop the binaries before the row goes,
+        // otherwise the s3/local objects are orphaned and accrue storage cost.
+        Storage::deleteObject($p['s3_key_original']);
+        Storage::deleteObject($p['s3_key_thumb']);
+        Storage::deleteObject($p['s3_key_medium']);
+        Storage::deleteObject($p['s3_key_large']);
         Db::exec('DELETE FROM photos WHERE id = ?', [$params['id']]);
         Http::noContent();
     });

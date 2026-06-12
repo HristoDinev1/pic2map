@@ -9,7 +9,9 @@ services:
       MARIADB_PASSWORD: pic2map
       MARIADB_DATABASE: pic2map
       MARIADB_ROOT_PASSWORD: pic2map
-    ports: ["3306:3306"]
+    # Bind to loopback only — the dev password is a known string and the
+    # default 0.0.0.0 binding would expose the DB on the LAN.
+    ports: ["127.0.0.1:3306:3306"]
     volumes: ["dbdata:/var/lib/mysql"]
 volumes:
   dbdata:

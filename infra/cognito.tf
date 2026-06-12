@@ -66,6 +66,22 @@ resource "aws_cognito_user_pool_client" "web" {
 }
 
 resource "aws_cognito_user_pool_domain" "main" {
+  # FIXME(needs-decision): "${var.project}-${var.environment}" is in the GLOBAL
+  # Cognito-prefix-domain namespace (one across ALL AWS accounts). Anyone who
+  # already deployed e.g. "pic2map-dev" anywhere on AWS will block this apply
+  # with: "Domain already associated with another user pool".
+  #
+  # Pick ONE of these and replace the line below:
+  #   1. Add an account/team-unique suffix:
+  #        domain = "${var.project}-${var.environment}-${data.aws_caller_identity.me.account_id}"
+  #      (also add `data "aws_caller_identity" "me" {}` somewhere).
+  #   2. Pass an explicit unique string in via a new variable:
+  #        variable "cognito_domain_prefix" { type = string }   # required, no default
+  #        domain = var.cognito_domain_prefix
+  #   3. Use your own DNS instead (custom_domain = "auth.example.com" + ACM cert).
+  #
+  # Option 2 is recommended for this project — easiest and explicit. Until then,
+  # `terraform apply` is non-deterministic across machines.
   domain       = "${var.project}-${var.environment}"
   user_pool_id = aws_cognito_user_pool.main.id
 }

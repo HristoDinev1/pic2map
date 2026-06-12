@@ -137,10 +137,14 @@ final class Cognito
         $host = "cognito-idp.$region.amazonaws.com";
         $body = json_encode($payload);
 
+        // See S3::signer() — same credential resolution chain so admin Cognito
+        // calls work under an IAM role, not just with static keys.
+        $c = AwsCredentials::get();
         $signer = new Sigv4(
-            Config::require('AWS_ACCESS_KEY_ID'),
-            Config::require('AWS_SECRET_ACCESS_KEY'),
+            $c['access_key'],
+            $c['secret_key'],
             $region,
+            $c['session_token'],
         );
         $headers = $signer->signedJsonHeaders($host, '/', 'cognito-idp', $body, [
             'Content-Type' => 'application/x-amz-json-1.1',

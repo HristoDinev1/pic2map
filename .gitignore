@@ -9,3 +9,6 @@ infra/build/
 infra/*.tfstate*
 terraform.tfvars
 .claude
+.idea/
+backend/.app-secret
+backend/storage/

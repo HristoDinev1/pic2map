@@ -72,7 +72,7 @@ export function renderGalleryPage(node) {
     }
     const geo = photos.filter((p) => p.latitude != null).length;
     const pub = photos.filter((p) => p.visibility === 'PUBLIC').length;
-    const processing = photos.filter((p) => p.processState !== 'READY' && p.processState !== 'ERROR').length;
+    const processing = photos.filter((p) => p.processState !== 'READY' && p.processState !== 'FAILED').length;
     statsLine.textContent = photos.length
       ? `${photos.length} photos · ${geo} geotagged · ${pub} public` + (processing ? ` · ${processing} still processing…` : '')
       : '';
@@ -86,7 +86,7 @@ export function renderGalleryPage(node) {
         rerender();
         // While the Lambda is still working on anything, refresh automatically
         // so thumbnails/GPS appear without the user mashing F5.
-        const processing = photos.some((p) => p.processState !== 'READY' && p.processState !== 'ERROR');
+        const processing = photos.some((p) => p.processState !== 'READY' && p.processState !== 'FAILED');
         if (refreshTimer) clearTimeout(refreshTimer);
         if (processing && !disposed) refreshTimer = setTimeout(load, REFRESH_WHILE_PROCESSING_MS);
       })

@@ -211,7 +211,7 @@ export function renderUploadPage(node) {
           ].filter(Boolean));
           return;
         }
-        if (photo.processState === 'ERROR') {
+        if (photo.processState === 'FAILED') {
           item.status = 'error';
           item.row.setStatus(`✗ Processing failed${photo.processError ? `: ${photo.processError}` : ''}`, 'error');
           return;

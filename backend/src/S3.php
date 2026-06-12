@@ -10,11 +10,16 @@ final class S3
 {
     private static function signer(): Sigv4
     {
+        // Resolve credentials in the AWS SDK order (static env → ECS/Fargate
+        // metadata → EC2 IMDSv2 instance role) so the API works unchanged on
+        // ECS/App Runner/EC2 with the IAM role from infra/iam.tf attached, not
+        // just with hard-coded keys in .env.
+        $c = AwsCredentials::get();
         return new Sigv4(
-            Config::require('AWS_ACCESS_KEY_ID'),
-            Config::require('AWS_SECRET_ACCESS_KEY'),
+            $c['access_key'],
+            $c['secret_key'],
             Config::get('AWS_REGION', 'us-east-1'),
-            Config::get('AWS_SESSION_TOKEN') ?: null,
+            $c['session_token'],
         );
     }
 
