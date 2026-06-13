@@ -46,6 +46,233 @@
 - Не са нужни никакви API ключове или външни услуги — всичко работи локално.
 - Снимка с GPS в EXIF се появява на картата веднага след качване; снимка без GPS може да се геотагне ръчно през редактора („Pick on map“).
 
+## Running against AWS (private RDS via SSM tunnel)
+
+This is what you actually need to do, end-to-end, to bring up the project
+against the AWS resources defined in `infra/`. The backend still runs on
+your laptop — the cloud side is RDS + S3 + Cognito + the image-processor
+Lambda. RDS lives in private subnets (correct — DBs should never be public),
+so your laptop reaches it through an SSM port-forwarding tunnel into a tiny
+bastion instance.
+
+No values in this section are real — every `<placeholder>` either comes from
+`tofu output` after a successful `apply`, or from a value **you choose** and
+put in `infra/terraform.tfvars` (which is gitignored).
+
+### 0. Prerequisites
+
+- **AWS account** with permissions to create VPC / RDS / Lambda / IAM / EC2 / SSM resources.
+- **AWS CLI** configured (`aws configure`) — verify with `aws sts get-caller-identity`.
+- **OpenTofu** (or Terraform — commands are interchangeable; this repo uses `tofu`).
+- **PHP 8.x** and **Docker** (Docker only needed if you also want a local DB; not required for the AWS path).
+- **AWS Session Manager Plugin** — install instructions in step 3 below.
+
+### 1. Fill in `infra/terraform.tfvars`
+
+Copy the example and edit:
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Required values you must set (none of these are baked into the repo, all of
+them are either secrets or globally-unique identifiers):
+
+| Variable | What it is | Where it comes from |
+|---|---|---|
+| `db_password` | RDS master password | **You choose.** Use a strong random string. Treat as a secret. |
+| `cognito_domain_prefix` | Hosted-UI subdomain, e.g. `pic2map-dev` | **You choose.** Must be globally unique across all AWS Cognito users — pick something project-specific. |
+| `cognito_callback_urls` | OAuth redirect URIs allowed by Cognito | Your real frontend URLs, e.g. `["http://localhost:5173/callback"]` for local. |
+| `cognito_logout_urls` | OAuth post-logout URIs | Same shape as above, without the `/callback`. |
+| `s3_cors_allowed_origins` | Browser origins allowed to PUT to S3 | Your frontend origins. **Different from logout URLs** — see "Known follow-ups" below. |
+
+`terraform.tfvars` is in `.gitignore` — never commit it. If you need to
+share values across machines, use a secret manager (1Password, AWS Secrets
+Manager, etc.), not git.
+
+### 2. Provision infrastructure
+
+```bash
+tofu init        # first time only
+tofu apply
+```
+
+Review the plan, type `yes`. First-time apply takes ~10 minutes (RDS is the
+slow one). Subsequent applies are seconds.
+
+After apply succeeds, capture the outputs you'll need:
+```bash
+tofu output
+```
+You'll see `bastion_instance_id`, `rds_endpoint`, `cognito_user_pool_id`,
+`cognito_client_id`, `cognito_domain`, `media_bucket`, etc. Don't paste
+these into the README or commit them — they're environment-specific. Keep
+the terminal open or write them down somewhere local.
+
+To inspect any of them in the AWS Console:
+- **Bastion EC2:** Console → EC2 → Instances → filter `pic2map-bastion-*`.
+- **RDS:** Console → RDS → Databases → `pic2map-<env>` → "Connectivity & security" → "Endpoint".
+- **Cognito:** Console → Cognito → User pools → `pic2map-<env>`.
+- **S3:** Console → S3 → Buckets → `pic2map-media-<env>`.
+- **Lambda:** Console → Lambda → Functions → `pic2map-image-processor-<env>`.
+
+### 3. Install the AWS Session Manager Plugin (one-time, per laptop)
+
+The plugin is **free**, open-source, and so is the SSM service it talks to —
+no AWS charges for sessions or port-forwarding. Install once and forget.
+
+**Windows (winget — easiest):**
+```powershell
+winget install Amazon.SessionManagerPlugin
+```
+
+**Windows (MSI alternative):**
+Download and run `SessionManagerPluginSetup.exe` from
+https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+
+**macOS / Linux:** see the same docs page — `brew install` or `.deb` / `.rpm`.
+
+Verify (re-open the terminal first so PATH refreshes):
+```bash
+session-manager-plugin --version
+```
+
+### 4. Open the SSM tunnel to RDS
+
+Run this in a **Git Bash** terminal from `infra/`. Leave the terminal
+running for as long as you want the tunnel open.
+
+```bash
+BASTION=$(tofu output -raw bastion_instance_id)
+RDS=$(tofu output -raw rds_endpoint | cut -d: -f1)
+
+aws ssm start-session \
+  --target "$BASTION" \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters "{\"host\":[\"$RDS\"],\"portNumber\":[\"3306\"],\"localPortNumber\":[\"3307\"]}"
+```
+
+Success looks like:
+```
+Starting session with SessionId: ...
+Port 3307 opened for sessionId ...
+Waiting for connections...
+```
+
+Now `127.0.0.1:3307` on your laptop is bridged to RDS:3306 inside the VPC.
+Open every other terminal window separately — this one is dedicated to the
+tunnel.
+
+Common errors:
+- `TargetNotConnected` — bastion's SSM agent hasn't checked in yet. Wait
+  ~30s after `tofu apply` and retry.
+- `command not found: tofu` — wrong terminal (use Git Bash, not PowerShell)
+  or OpenTofu isn't installed.
+- `command not found: session-manager-plugin` — re-open the terminal after
+  installing the plugin so PATH refreshes.
+
+### 5. Configure the backend `.env`
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Set the AWS-mode values (everything else can stay at the local defaults):
+
+```
+# Drivers
+STORAGE_DRIVER=s3
+AUTH_DRIVER=cognito
+
+# Database — point at the SSM tunnel, NOT the RDS endpoint directly
+DB_HOST=127.0.0.1
+DB_PORT=3307
+DB_NAME=pic2map
+DB_USER=pic2map
+DB_PASSWORD=<the-db_password-you-chose-in-terraform.tfvars>
+
+# AWS
+AWS_REGION=us-east-1
+S3_BUCKET=<media_bucket from `tofu output`>
+COGNITO_USER_POOL_ID=<cognito_user_pool_id from `tofu output`>
+COGNITO_CLIENT_ID=<cognito_client_id from `tofu output`>
+
+# IAM credentials — only if you're not using a profile / role.
+# Prefer leaving these blank and using `aws configure` profiles instead.
+# AWS_ACCESS_KEY_ID=
+# AWS_SECRET_ACCESS_KEY=
+```
+
+Why `127.0.0.1:3307`? The RDS endpoint hostname won't resolve to anything
+reachable from your laptop — it's a private DNS name inside the VPC. The
+tunnel exposes it as a local port instead.
+
+### 6. Run database migrations
+
+The tunnel must be running for this to work:
+```bash
+php scripts/migrate.php
+```
+This connects to `127.0.0.1:3307` per your `.env`, which the tunnel routes
+to RDS, which is then provisioned with the schema. Idempotent — safe to
+re-run.
+
+### 7. Configure the frontend
+
+```bash
+cd frontend/js
+cp config.example.js config.js
+```
+
+Edit `config.js` and set the Cognito values from `tofu output`:
+- `userPoolId` ← `cognito_user_pool_id`
+- `clientId` ← `cognito_client_id`
+- `domain` ← `cognito_domain`
+
+### 8. Start everything
+
+Three terminals:
+
+| Terminal | Command | Purpose |
+|---|---|---|
+| 1 | `aws ssm start-session ...` (from step 4) | Holds the RDS tunnel open |
+| 2 | `cd backend && php -S localhost:4000 -t public public/router.php` | Backend API |
+| 3 | `cd frontend && php -S localhost:5173` | Static frontend |
+
+Open http://localhost:5173. The first registered account is admin.
+
+### Day-to-day: starting and stopping the bastion to save cost
+
+The bastion is a `t3.micro`. AWS Free Tier covers 750 hours/month for the
+first 12 months; after that it's ~$7.50/mo if left running. Stop it when
+you're done for the day:
+
+```bash
+aws ec2 stop-instances --instance-ids "$(tofu output -raw bastion_instance_id)"
+```
+
+Start it again before opening the tunnel:
+```bash
+aws ec2 start-instances --instance-ids "$(tofu output -raw bastion_instance_id)"
+```
+
+A stopped instance costs only the EBS root volume (~$0.80/mo). No
+`tofu apply` needed for stop/start — they're runtime state.
+
+### Tearing it all down
+
+```bash
+cd infra
+tofu destroy
+```
+
+Will prompt for confirmation. Everything created by `infra/` goes away —
+including the RDS instance, so any photos in the DB are deleted (S3 objects
+too if the bucket is empty; otherwise you'll need to empty it first).
+
+---
+
 ## Known follow-ups (need a decision before next AWS deploy)
 
 These are tracked here so they don't disappear into a single file's comments.
