@@ -51,12 +51,11 @@
 These are tracked here so they don't disappear into a single file's comments.
 
 ### 1. S3 CORS allowed origins — `infra/s3.tf` + `infra/variables.tf`
-The bucket's `allowed_origins` used to read from `var.cognito_logout_urls`,
-which is unrelated and surprising. There is now a dedicated
-`var.s3_cors_allowed_origins` variable (default mirrors the previous list so
-existing deployments are no-op). When you go to prod, set it to **only** the
-real frontend origin(s) that PUT to S3 — adding/removing OAuth logout URLs
-must not change browser CORS.
+`var.s3_cors_allowed_origins` defaults to `["http://localhost:5173"]` for
+local development. When deploying to a real domain, set it in
+`terraform.tfvars` to **only** the real frontend origin(s) that browser-PUT
+to S3 — e.g. `["https://pic2map.example.com"]`. OAuth logout URLs and CORS
+origins are independent concerns and should not share a list.
 
 ## Troubleshooting: "upload works from the terminal but not from the UI"
 
@@ -131,8 +130,7 @@ Audit pass over the branch surfaced and fixed:
   `components/photo-card.js`.
 - `routes/moderation.php` called `S3::deleteObject` directly (crashed under
   the local driver) and inserted into `moderation_actions` after the photo
-  was deleted in the same tx (FK violation). Rewritten — see file + Known
-  follow-up #2 above.
+  was deleted in the same tx (FK violation). Rewritten.
 - `routes/admin.php` deleted the photo row but orphaned the storage objects.
 - `frontend/js/main.js` checked `cognito.isSignedIn()` even under
   `AUTH_DRIVER=local`. Switched to the driver-aware `auth` facade.
