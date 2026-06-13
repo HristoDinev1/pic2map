@@ -373,8 +373,11 @@ tbody tr:hover { background: var(--slate-50); }
   border: 1px solid var(--slate-200); position: relative; box-shadow: var(--shadow-sm);
 }
 .map-viewport {
-  position: absolute; inset: 0; overflow: hidden; cursor: grab; background: #dde5ec;
+  position: absolute; inset: 0; overflow: hidden; cursor: grab;
+  background:
+    radial-gradient(120% 80% at 50% 0%, #e3eaf3 0%, #cfd8e3 60%, #c3cdda 100%);
   user-select: none;
+  touch-action: none; /* prevent the page from scrolling on trackpad swipes */
 }
 .map-viewport.dragging { cursor: grabbing; }
 .map-layer { position: absolute; left: 0; top: 0; }

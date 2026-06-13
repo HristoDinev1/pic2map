@@ -111,8 +111,11 @@ export class CustomMap {
     this.selfLocation = null;     // [lat, lng] from geolocation
 
     this.viewport = el('div', { class: 'map-viewport', tabindex: '0', role: 'application', 'aria-label': 'Interactive map' });
-    this.tileLayer = el('div', { class: 'map-layer' });
-    this.markerLayer = el('div', { class: 'map-layer' });
+    // Explicit z-index on the layers (they share the .map-layer class) so the
+    // marker layer always paints above the tile layer regardless of how the
+    // browser stacks the children's own z-indexes.
+    this.tileLayer = el('div', { class: 'map-layer', style: 'z-index:1' });
+    this.markerLayer = el('div', { class: 'map-layer', style: 'z-index:2' });
     this.viewport.append(this.tileLayer, this.markerLayer);
 
     const controls = el('div', { class: 'map-controls' }, [
@@ -311,10 +314,34 @@ export class CustomMap {
       this.zoomAt(e.clientX - r.left, e.clientY - r.top, 1);
     });
 
+    // Wheel handling — split between pan (trackpad two-finger swipe) and zoom
+    // (mouse wheel / trackpad pinch). Conventions used:
+    //   • ctrlKey or metaKey set → pinch on Mac trackpad, or explicit zoom modifier → zoom
+    //   • deltaMode === 1 (DOM_DELTA_LINE) → traditional mouse wheel → zoom
+    //   • otherwise (DOM_DELTA_PIXEL with no modifier) → trackpad swipe → pan
+    // Zoom uses an accumulator + threshold so a fast trackpad pinch doesn't
+    // skip three zoom levels in a single event burst.
+    let wheelAccum = 0;
+    let wheelResetTimer = null;
+    const ZOOM_STEP = 35;
     this.viewport.addEventListener('wheel', (e) => {
       e.preventDefault();
       const r = rect();
-      this.zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1 : -1);
+      const isZoom = e.ctrlKey || e.metaKey || e.deltaMode === 1;
+      if (isZoom) {
+        wheelAccum += e.deltaY;
+        clearTimeout(wheelResetTimer);
+        wheelResetTimer = setTimeout(() => { wheelAccum = 0; }, 200);
+        const sx = e.clientX - r.left, sy = e.clientY - r.top;
+        while (wheelAccum <= -ZOOM_STEP) { this.zoomAt(sx, sy,  1); wheelAccum += ZOOM_STEP; }
+        while (wheelAccum >=  ZOOM_STEP) { this.zoomAt(sx, sy, -1); wheelAccum -= ZOOM_STEP; }
+      } else {
+        // Two-finger swipe → pan. Slight damping so flicks aren't twitchy.
+        this.originX += e.deltaX * 0.9;
+        this.originY += e.deltaY * 0.9;
+        this.clampOrigin();
+        scheduleRender();
+      }
     }, { passive: false });
 
     this.viewport.addEventListener('keydown', (e) => {
