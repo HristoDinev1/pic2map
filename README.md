@@ -8,6 +8,45 @@
 
 Уеб приложение за качване на снимки, което автоматично извлича GPS координатите от EXIF данните на изображението и ги показва като маркери върху интерактивна карта. Поддържа потребителски акаунти, лична галерия, албуми, търсене и редакция на местоположение чрез избор върху картата.
 
+## Overview (English)
+
+PIC2MAP is a self-hostable photo-on-a-map web app. Each user uploads photos
+through the browser; the server extracts the GPS coordinates from the image's
+EXIF metadata, generates thumbnail / medium / large derivatives, and pins the
+photo on a shared interactive map. Photos without EXIF GPS can be geotagged
+manually by clicking the map.
+
+What it does, end to end:
+
+- **Accounts & roles** — sign-up / sign-in / forgot-password, with three
+  roles: `USER` (default), `MODERATOR`, `ADMIN`. The first registered account
+  becomes admin automatically. Two interchangeable auth backends ship in the
+  same codebase: a self-hosted local driver (passwords stored as bcrypt
+  hashes, HMAC-signed session tokens), and Amazon Cognito.
+- **Upload pipeline** — the browser asks the API for a presigned PUT URL,
+  uploads the original directly to object storage, and the server (or the
+  image-processor Lambda, on AWS) extracts EXIF + generates 320 / 1024 /
+  2048-px renditions.
+- **Map** — slippy-map (OSM tiles) with clustered pins for every photo the
+  caller is allowed to see (own photos always; other users' photos when
+  marked `PUBLIC` and not rejected by a moderator).
+- **Personal gallery, albums, search** — own photos in any state, public
+  photos from anyone, filterable by username/email, album, title, date
+  range, and bounding box.
+- **Manual geotag editor** — drag a marker on the map to add / change / clear
+  GPS coordinates on a photo that lacks them.
+- **Moderation** — moderators see a queue of `PENDING` uploads and can
+  approve, reject, or delete. The action log survives photo deletion.
+- **Admin dashboard** — system-wide stats (users, photos, storage),
+  user-role management.
+
+Two deployment modes are first-class:
+
+1. **Fully local** — MariaDB in Docker, files on the local filesystem,
+   accounts in the same DB. No AWS account, no API keys, no cost.
+2. **AWS** — RDS MariaDB in private subnets, S3 for media, Cognito for
+   accounts, and a Lambda for image processing. See *AWS architecture* below.
+
 ## Технологии
 
 - **Frontend:** чист HTML/CSS/JavaScript (ES модули, без framework и без външни библиотеки) — собствена slippy-map карта върху OSM тайлове, собствен EXIF парсер, hash рутер
@@ -45,6 +84,95 @@
 
 - Не са нужни никакви API ключове или външни услуги — всичко работи локално.
 - Снимка с GPS в EXIF се появява на картата веднага след качване; снимка без GPS може да се геотагне ръчно през редактора („Pick on map“).
+
+## AWS architecture
+
+Everything in `infra/` is one OpenTofu/Terraform configuration that stands up
+the full cloud side. The PHP backend can run on your laptop, on ECS, or on
+App Runner — the AWS resources don't care; they only see authenticated API
+calls and IAM-signed requests.
+
+### High-level flow
+
+```
+        ┌────────────────────────────── Browser ───────────────────────────────┐
+        │  static frontend (HTML/JS) served from anywhere                       │
+        └──────────┬─────────────────────────────────┬──────────────────────────┘
+                   │ 1. sign-in (HTTPS)              │ 4. PUT original (HTTPS, presigned)
+                   ▼                                 ▼
+            ┌───────────────┐                ┌──────────────────┐
+            │  Cognito      │                │  S3              │
+            │  user pool    │                │  media bucket    │
+            │  (regional)   │                │  (private)       │
+            └───────┬───────┘                └────────┬─────────┘
+                    │ 2. ID/access tokens             │ 5. ObjectCreated event
+                    ▼                                 ▼
+            ┌───────────────┐ 3. JWT-auth   ┌──────────────────┐
+            │  PHP API      ├──────────────►│  Lambda          │
+            │  /api/*       │ 7. /me, list, │  image-processor │
+            │  (laptop /    │    presign    │  (Node.js +      │
+            │  ECS / App    │◄──────────────┤   sharp + exifr) │
+            │  Runner)      │ 6. update DB  └────────┬─────────┘
+            └───────┬───────┘                        │
+                    │ 6/7. SQL                       │ 6a. PUT thumb/medium/large
+                    ▼                                ▼
+            ┌─────────────────────────────────────────────────┐
+            │   RDS MariaDB (private subnets, no public IP)   │
+            └─────────────────────────────────────────────────┘
+                    ▲ via SSM port-forward
+                    │
+            ┌───────┴───────┐
+            │  Bastion EC2  │  reached only with `aws ssm start-session` —
+            │  (no SSH)     │  no public IP, no inbound rules.
+            └───────────────┘
+```
+
+### What each AWS service does
+
+| Service | What it is here | Configured in |
+|---|---|---|
+| **VPC** + 2 public + 2 private subnets, IGW, NAT, route tables | Network isolation. The DB and Lambda live in private subnets and reach the internet only through a single NAT gateway. The bastion lives in private subnets too — there is intentionally **no SSH path in**. | `infra/vpc.tf` |
+| **S3** (`pic2map-media-<env>`) | Object storage for everything image-shaped. Layout: `originals/{userId}/{photoId}.{ext}` for the upload, plus `thumbs/`, `medium/`, `large/` for the renditions written by Lambda. Public access is blocked at the bucket level; the browser only ever sees presigned URLs (PUT for upload, GET for view), each scoped to one object and one short expiry. CORS allows `PUT/GET/HEAD` from the configured frontend origins. Versioning + AES-256 SSE on. | `infra/s3.tf`, `backend/src/S3.php` |
+| **Cognito** (User Pool + Hosted UI domain + App Client) | Identity provider when `AUTH_DRIVER=cognito`. Sign-up, email verification, password reset, JWT issuance — all handled by Cognito. The pool is configured with `username_attributes = ["email"]`, so a user's email *is* their Cognito username. Two groups (`Moderators`, `Administrators`) drive the app's role mapping. The web client uses the `code` OAuth flow plus `USER_PASSWORD_AUTH` for the direct-from-browser sign-in path in `frontend/js/cognito.js`. | `infra/cognito.tf`, `backend/src/Cognito.php`, `frontend/js/cognito.js` |
+| **RDS MariaDB 11.4** | Source of truth for users, photos, albums, moderation log, audit log. Lives in private subnets; reached by Lambda directly (same VPC) and by the API via security-group rules; reached from your laptop only through the SSM tunnel (no public endpoint). Storage encrypted at rest, daily automated backups. | `infra/rds.tf`, `backend/sql/schema.sql` |
+| **Lambda** (`pic2map-image-processor-<env>`) | Node.js 20 function that runs **inside the VPC** so it can talk to RDS over the private network. Triggered by an S3 `ObjectCreated:*` event with prefix `originals/`. Pulls the upload, extracts EXIF GPS + capture date with `exifr`, generates three resized JPEGs with `sharp`, writes them back under `thumbs/medium/large/`, and updates the matching `photos` row with size / GPS / capture-date / `process_state='READY'`. The frontend polls `/api/photos/{id}` until `process_state` flips. | `infra/lambda.tf`, `lambda/image-processor/index.js` |
+| **IAM roles** | Two least-privilege roles. The Lambda role grants S3 `GetObject/PutObject` on the media bucket only and the AWS-managed `AWSLambdaVPCAccessExecutionRole` (so the function can attach an ENI to the private subnet and write CloudWatch logs). The App role grants S3 `GetObject/PutObject/DeleteObject` plus a small set of `cognito-idp:Admin*` actions for role management; assumable by `ecs-tasks` and `apprunner` so the same role works in both deployment shapes. | `infra/iam.tf` |
+| **CloudWatch** | Logs + alarms. The Lambda gets an explicit log group with 30-day retention (otherwise Lambda would auto-create one with no retention cap). Two alarms ship out of the box: `pic2map-image-processor-errors` (>1 error per 5 min) and `pic2map-rds-cpu-high` (>80% CPU for two consecutive 5-minute windows). | `infra/cloudwatch.tf` |
+| **EC2 t3.micro bastion** | Tiny private-subnet host whose only job is to be the other end of an SSM port-forward into RDS. No public IP, no inbound rules, no SSH key. Eligible for the 12-month Free Tier; stop it with `aws ec2 stop-instances` when you're done for the day so you only pay ~$0.80/mo for the EBS root volume. | `infra/bastion.tf` |
+| **Systems Manager (SSM)** | Reaches the bastion without exposing it. The bastion's IAM instance profile attaches `AmazonSSMManagedInstanceCore`, so `aws ssm start-session --document AWS-StartPortForwardingSessionToRemoteHost` opens a TCP tunnel from a local port on your laptop to RDS:3306 inside the VPC. SSM itself is free; no NAT charges either, since the agent uses the VPC endpoint path. | `infra/bastion.tf`, step 4 below |
+
+### Two key request flows
+
+**Sign in (Cognito mode).**  The browser POSTs `username/password` straight
+to the regional `cognito-idp` endpoint and gets back an ID token + refresh
+token. Every subsequent API call carries the ID token in `Authorization:
+Bearer …`; the PHP backend verifies it against the Cognito JWKS, maps the
+`cognito:groups` claim onto `USER/MODERATOR/ADMIN`, and synthesises a `users`
+row on first sight (kept in sync on every request). Sign-out clears the
+local session and globally revokes the refresh token through Cognito.
+
+**Upload a photo.**
+
+1. Browser → API: `POST /api/photos/presign` with the filename and
+   content-type. The API inserts a `photos` row with `process_state =
+   UPLOADED` and returns a one-time presigned PUT URL.
+2. Browser → S3: `PUT <presigned-url>` with the raw image bytes. CORS
+   preflight has to pass first — the bucket's CORS rule allows `PUT/GET/HEAD`
+   from the configured frontend origins.
+3. S3 → Lambda: `s3:ObjectCreated:*` event with prefix `originals/` invokes
+   the image-processor.
+4. Lambda → S3: downloads the original, runs `exifr` (GPS + capture date) and
+   `sharp` (320 / 1024 / 2048-px JPEGs), uploads the three derivatives.
+5. Lambda → RDS: updates the same `photos` row with width/height/size, GPS,
+   `captured_at`, the three derivative S3 keys, and `process_state =
+   READY` (or `FAILED` plus the error message).
+6. Browser → API: polls `GET /api/photos/{id}` and renders the thumbnail
+   once `process_state` flips. View URLs are short-lived presigned GETs
+   minted by the API on demand — the bucket itself stays private.
+
+In **fully-local mode** the same flow uses the local filesystem instead of
+S3, and runs the `exifr/sharp` work synchronously inside PHP — no Lambda,
+no event, no IAM, but the contract on the frontend is identical.
 
 ## Running against AWS (private RDS via SSM tunnel)
 
@@ -225,10 +353,15 @@ cd frontend/js
 cp config.example.js config.js
 ```
 
-Edit `config.js` and set the Cognito values from `tofu output`:
-- `userPoolId` ← `cognito_user_pool_id`
-- `clientId` ← `cognito_client_id`
-- `domain` ← `cognito_domain`
+Edit `config.js`:
+- `authDriver` → `'cognito'`
+- `cognitoRegion` → your AWS region (e.g. `'us-east-1'`)
+- `cognitoClientId` → `cognito_client_id` from `tofu output`
+
+The frontend talks to the regional `cognito-idp.<region>.amazonaws.com`
+endpoint directly, so the user-pool id and the hosted-UI domain aren't
+needed in the static client (the backend still needs `COGNITO_USER_POOL_ID`
+in `.env` to verify JWTs).
 
 ### 8. Start everything
 
@@ -341,35 +474,29 @@ Confirm `PUT` is in `AllowedMethods` and your **exact** frontend origin
   `Sigv4.php` only signs the `host` header (`X-Amz-SignedHeaders=host`), so
   the browser's `Content-Type` is free to be anything.
 
-## Recent fixes (us-east-1-dev, 2026-06-12)
+## Implementation notes
 
-Audit pass over the branch surfaced and fixed:
-- `backend/src/AwsCredentials.php` was dead code; `S3.php` and `Cognito.php`
-  now resolve credentials through it (env → ECS metadata → EC2 IMDSv2), so
-  the IAM role provisioned in `infra/iam.tf` is actually used.
-- `Storage::driver()` auto-detect was tied to a static `AWS_ACCESS_KEY_ID`,
-  so IAM-role hosts silently fell back to `local`. It now flips to `s3` when
-  `S3_BUCKET` is set and any IAM-role indicator (`AWS_CONTAINER_CREDENTIALS_*`,
-  `AWS_EXECUTION_ENV`) is present.
-- Frontend was checking `processState === 'ERROR'` but the DB enum is
-  `'FAILED'` — this affected upload polling, the gallery's auto-refresh, and
-  the photo-card badge. Fixed in `pages/upload.js`, `pages/gallery.js`,
-  `components/photo-card.js`.
-- `routes/moderation.php` called `S3::deleteObject` directly (crashed under
-  the local driver) and inserted into `moderation_actions` after the photo
-  was deleted in the same tx (FK violation). Rewritten.
-- `routes/admin.php` deleted the photo row but orphaned the storage objects.
-- `frontend/js/main.js` checked `cognito.isSignedIn()` even under
-  `AUTH_DRIVER=local`. Switched to the driver-aware `auth` facade.
-- `.gitignore`: added `.idea/`, `backend/.app-secret`, `backend/storage/`.
-- `docker-compose.yml`: MariaDB bound to `127.0.0.1:3306` (was `0.0.0.0`).
-- `infra/cognito.tf`: hosted-UI domain prefix is now an explicit required
-  variable (`cognito_domain_prefix`) instead of `${project}-${environment}`,
-  which lived in the global Cognito-prefix namespace and was non-deterministic
-  across machines. Set `cognito_domain_prefix = "pic2map-dev"` in
-  `terraform.tfvars` to keep the existing claim — see `terraform.tfvars.example`.
-- `moderation_actions.photo_id` is now `NULL` with `ON DELETE SET NULL` (was
-  `NOT NULL` + `ON DELETE CASCADE`), so DELETE actions and their reasons are
-  recorded too. `routes/moderation.php` now inserts a moderation_actions row
-  unconditionally — the special-case for DELETE is gone. `migrate.php` upgrades
-  existing databases idempotently.
+A few design decisions that aren't obvious from reading any single file:
+
+- **AWS credentials.** `backend/src/AwsCredentials.php` resolves credentials
+  in the standard SDK order (env → ECS task metadata → EC2 IMDSv2), so the
+  IAM role from `infra/iam.tf` is picked up automatically without needing
+  static keys in `.env`.
+- **Storage driver auto-detect** (`backend/src/Storage.php`) flips to `s3`
+  when `S3_BUCKET` is set and any IAM-role indicator is present
+  (`AWS_CONTAINER_CREDENTIALS_*`, `AWS_EXECUTION_ENV`); otherwise it falls
+  back to the local filesystem. Set `STORAGE_DRIVER` explicitly to override.
+- **Photo lifecycle states** are tracked in two independent columns:
+  `process_state` (`UPLOADED → PROCESSING → READY | FAILED`) is the
+  pipeline's view; `status` (`PENDING | APPROVED | REJECTED`) is the
+  moderator's. The map and search show `PUBLIC` photos in any non-`REJECTED`
+  state, so on installs without an active moderation queue the default
+  behaviour is "public means visible".
+- **Moderation log** (`moderation_actions`) keeps `photo_id` nullable with
+  `ON DELETE SET NULL`, so a moderator's `DELETE` action and its reason
+  survive the photo it referenced. Every action gets a row — there is no
+  special case.
+- **Cognito hosted-UI domain prefix** lives in a global per-region namespace
+  shared across all AWS accounts, so it has to be an explicit
+  `cognito_domain_prefix` variable rather than a derived default. Pick
+  something project-specific in `terraform.tfvars`.
