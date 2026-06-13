@@ -557,7 +557,7 @@ export class CustomMap {
       el('button', { class: 'close', type: 'button', 'aria-label': 'Close', onclick: (e) => { e.stopPropagation(); this.closePopup(); } }, '✕'),
       img ? el('img', { src: img, alt: photo.title }) : null,
       el('div', { class: 'title' }, photo.title),
-      el('div', { class: 'sub' }, `by ${photo.ownerUsername || 'unknown'}`),
+      el('div', { class: 'sub' }, `by ${photo.ownerEmail || photo.ownerUsername || 'unknown'}`),
       photo.capturedAt ? el('div', { class: 'sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`) : null,
       el('div', { class: 'sub' }, `${photo.latitude.toFixed(5)}, ${photo.longitude.toFixed(5)}`),
       el('div', { class: 'sub' }, `Uploaded ${new Date(photo.createdAt).toLocaleDateString()}`),
@@ -580,7 +580,7 @@ export class CustomMap {
     const popup = el('div', { class: 'map-popup map-popup-hover', style: `left:${x}px;top:${y}px` }, [
       img ? el('img', { src: img, alt: photo.title }) : null,
       el('div', { class: 'title' }, photo.title || 'Untitled'),
-      el('div', { class: 'sub' }, `by ${photo.ownerUsername || 'unknown'}`),
+      el('div', { class: 'sub' }, `by ${photo.ownerEmail || photo.ownerUsername || 'unknown'}`),
       photo.description ? el('div', { class: 'sub desc' }, photo.description) : null,
       photo.capturedAt ? el('div', { class: 'sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`) : null,
       photo.createdAt ? el('div', { class: 'sub' }, `Uploaded ${new Date(photo.createdAt).toLocaleDateString()}`) : null,

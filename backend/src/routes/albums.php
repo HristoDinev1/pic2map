@@ -53,7 +53,7 @@ return function (Router $r): void {
             throw new HttpError(403, 'Not allowed');
         }
         $rows = Db::query(
-            'SELECT p.*, u.username AS owner_username
+            'SELECT p.*, u.username AS owner_username, u.email AS owner_email
              FROM album_photos ap
              JOIN photos p ON p.id = ap.photo_id
              JOIN users u ON u.id = p.owner_id

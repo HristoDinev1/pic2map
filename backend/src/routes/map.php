@@ -29,7 +29,7 @@ return function (Router $r): void {
         }
 
         $rows = Db::query(
-            "SELECT p.*, u.username AS owner_username
+            "SELECT p.*, u.username AS owner_username, u.email AS owner_email
              FROM photos p JOIN users u ON u.id = p.owner_id
              WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
                AND ( (p.visibility='PUBLIC' AND p.status <> 'REJECTED') OR p.owner_id = ? )

@@ -28,7 +28,7 @@ export function renderNavbar(node) {
         el('span', { class: 'brand' }, 'PIC2MAP'),
         ...links.map((l) => navLink(l.path, l.label)),
         el('div', { class: 'nav-spacer' }, [
-          profile ? el('span', { class: 'nav-user' }, `${profile.username} · ${role}`) : null,
+          profile ? el('span', { class: 'nav-user' }, `${profile.email || profile.username} · ${role}`) : null,
           profile ? el('button', {
             class: 'btn-link-danger',
             onclick: async () => { await authStore.logout(); location.reload(); },

@@ -43,13 +43,13 @@ export function renderMapPage(node) {
     center: [42.6977, 23.3219],
     zoom: 4,
     popupActions: (photo) => {
-      const me = authStore.profile && authStore.profile.username;
+      const me = authStore.profile && authStore.profile.email;
       const buttons = [];
       const full = photo.urls && (photo.urls.large || photo.urls.original || photo.urls.medium);
       if (full) {
         buttons.push(el('a', { class: 'btn btn-sm', href: full, target: '_blank', rel: 'noopener' }, 'Open'));
       }
-      if (me && photo.ownerUsername === me) {
+      if (me && photo.ownerEmail === me) {
         buttons.push(el('button', {
           class: 'btn btn-sm btn-primary',
           onclick: () => openPhotoEditor(photo, () => load()),
@@ -60,12 +60,12 @@ export function renderMapPage(node) {
   });
 
   function applyFilters() {
-    const me = authStore.profile && authStore.profile.username;
+    const me = authStore.profile && authStore.profile.email;
     const who = ownerFilter.value;
     const q = titleFilter.value.trim().toLowerCase();
     const filtered = allPhotos.filter((p) => {
-      if (who === 'mine' && p.ownerUsername !== me) return false;
-      if (who === 'others' && p.ownerUsername === me) return false;
+      if (who === 'mine' && p.ownerEmail !== me) return false;
+      if (who === 'others' && p.ownerEmail === me) return false;
       if (q && !(p.title || '').toLowerCase().includes(q)) return false;
       return true;
     });

@@ -15,7 +15,7 @@ export function renderModerationPage(node) {
         photo.urls.medium ? el('img', { src: photo.urls.medium, style: 'width:100%;height:9rem;object-fit:cover;display:block' }) : null,
         el('div', { style: 'padding:0.5rem' }, [
           el('div', { class: 'photo-title' }, photo.title),
-          el('div', { class: 'muted', style: 'font-size:0.75rem' }, `by ${photo.ownerUsername}`),
+          el('div', { class: 'muted', style: 'font-size:0.75rem' }, `by ${photo.ownerEmail || photo.ownerUsername}`),
           el('div', { class: 'row mt-1' }, [
             el('button', { class: 'btn btn-success btn-sm', onclick: act('APPROVE') }, 'Approve'),
             el('button', { class: 'btn btn-amber btn-sm', onclick: act('REJECT') }, 'Reject'),

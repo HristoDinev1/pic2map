@@ -7,7 +7,7 @@ return function (Router $r): void {
         $user = Auth::authenticate();
         Auth::requireRole($user, 'MODERATOR');
         $rows = Db::query(
-            "SELECT p.*, u.username AS owner_username
+            "SELECT p.*, u.username AS owner_username, u.email AS owner_email
              FROM photos p JOIN users u ON u.id = p.owner_id
              WHERE p.status = 'PENDING' ORDER BY p.created_at ASC LIMIT 200"
         );
