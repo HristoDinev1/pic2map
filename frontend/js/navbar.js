@@ -29,7 +29,10 @@ export function renderNavbar(node) {
         ...links.map((l) => navLink(l.path, l.label)),
         el('div', { class: 'nav-spacer' }, [
           profile ? el('span', { class: 'nav-user' }, `${profile.username} · ${role}`) : null,
-          profile ? el('button', { class: 'btn-link-danger', onclick: () => authStore.logout() }, 'Sign out') : null,
+          profile ? el('button', {
+            class: 'btn-link-danger',
+            onclick: async () => { await authStore.logout(); location.reload(); },
+          }, 'Sign out') : null,
         ]),
       ]),
     ]));
