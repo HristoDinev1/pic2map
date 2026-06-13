@@ -6,3 +6,4 @@ output "cognito_domain"          { value = "${aws_cognito_user_pool_domain.main.
 output "lambda_function"         { value = aws_lambda_function.image_processor.function_name }
 output "vpc_id"                  { value = aws_vpc.main.id }
 output "private_subnet_ids"      { value = aws_subnet.private[*].id }
+output "bastion_instance_id"     { value = aws_instance.bastion.id }
