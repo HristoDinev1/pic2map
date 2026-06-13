@@ -2,8 +2,8 @@
 # No SSH, no inbound rules, no public IP. Reach it via:
 #   aws ssm start-session --target <id> --document-name AWS-StartPortForwardingSessionToRemoteHost ...
 
-data "aws_ssm_parameter" "al2023_arm" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
+data "aws_ssm_parameter" "al2023_x86" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
 resource "aws_security_group" "bastion" {
@@ -42,8 +42,8 @@ resource "aws_iam_instance_profile" "bastion" {
 }
 
 resource "aws_instance" "bastion" {
-  ami                         = data.aws_ssm_parameter.al2023_arm.value
-  instance_type               = "t4g.nano"
+  ami                         = data.aws_ssm_parameter.al2023_x86.value
+  instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.private[0].id
   vpc_security_group_ids      = [aws_security_group.bastion.id]
   iam_instance_profile        = aws_iam_instance_profile.bastion.name
