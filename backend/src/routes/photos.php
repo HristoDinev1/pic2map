@@ -8,7 +8,7 @@ return function (Router $r): void {
         p.content_type, p.size_bytes, p.width, p.height,
         p.latitude, p.longitude, p.captured_at, p.visibility,
         p.status, p.process_state, p.process_error, p.created_at, p.updated_at,
-        u.username AS owner_username";
+        u.username AS owner_username, u.email AS owner_email";
 
     $ownedPhoto = function (string $id, array $user): array {
         $p = Db::one('SELECT * FROM photos WHERE id = ?', [$id]);

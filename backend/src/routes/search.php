@@ -53,7 +53,7 @@ return function (Router $r): void {
         }
 
         $rows = Db::query(
-            "SELECT DISTINCT p.*, u.username AS owner_username
+            "SELECT DISTINCT p.*, u.username AS owner_username, u.email AS owner_email
              FROM photos p $join
              WHERE " . implode(' AND ', $where) . '
              ORDER BY p.created_at DESC LIMIT 500',

@@ -10,6 +10,7 @@ final class Serialize
             'id' => $p['id'],
             'ownerId' => $p['owner_id'],
             'ownerUsername' => $p['owner_username'] ?? null,
+            'ownerEmail' => $p['owner_email'] ?? null,
             'title' => $p['title'],
             'description' => $p['description'],
             'urls' => [
