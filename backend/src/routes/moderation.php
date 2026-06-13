@@ -29,21 +29,10 @@ return function (Router $r): void {
         if (!$p) throw new HttpError(404, 'Photo not found');
 
         Db::tx(function () use ($p, $action, $reason, $user) {
-            // moderation_actions has photo_id NOT NULL with an ON DELETE CASCADE
-            // FK to photos(id). For DELETE we therefore can't keep a per-photo
-            // moderation_actions row at all (insert-before-delete would survive
-            // only briefly, then cascade-disappear; insert-after-delete fails
-            // the FK). The audit_log row below captures the DELETE; that's the
-            // durable record. APPROVE/REJECT keep the moderation_actions row.
-            // FIXME(schema): a cleaner fix is to make photo_id nullable with
-            // ON DELETE SET NULL so the moderation history survives photo
-            // deletion. Requires a migration — see README "Known follow-ups".
-            if ($action !== 'DELETE') {
-                Db::exec(
-                    'INSERT INTO moderation_actions (id, photo_id, moderator_id, action, reason) VALUES (?,?,?,?,?)',
-                    [Uuid::v4(), $p['id'], $user['id'], $action, $reason]
-                );
-            }
+            Db::exec(
+                'INSERT INTO moderation_actions (id, photo_id, moderator_id, action, reason) VALUES (?,?,?,?,?)',
+                [Uuid::v4(), $p['id'], $user['id'], $action, $reason]
+            );
             Db::exec(
                 "INSERT INTO audit_log (actor_id, action, entity, entity_id, meta) VALUES (?,?,'photo',?,?)",
                 [$user['id'], "MOD_$action", $p['id'], json_encode(['reason' => $reason])]
@@ -55,6 +44,8 @@ return function (Router $r): void {
                 Storage::deleteObject($p['s3_key_thumb']);
                 Storage::deleteObject($p['s3_key_medium']);
                 Storage::deleteObject($p['s3_key_large']);
+                // photos.id is set NULL on the moderation_actions row by the
+                // FK's ON DELETE SET NULL — the audit row above keeps the id.
                 Db::exec('DELETE FROM photos WHERE id = ?', [$p['id']]);
             } else {
                 Db::exec('UPDATE photos SET status = ? WHERE id = ?', [$action === 'APPROVE' ? 'APPROVED' : 'REJECTED', $p['id']]);

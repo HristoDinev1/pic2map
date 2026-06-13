@@ -50,26 +50,7 @@
 
 These are tracked here so they don't disappear into a single file's comments.
 
-### 1. moderation_actions schema — `backend/sql/schema.sql`
-`moderation_actions.photo_id` is `NOT NULL` with `ON DELETE CASCADE` to
-`photos(id)`. The current `routes/moderation.php` therefore **skips** the
-`moderation_actions` row entirely when a moderator chooses DELETE — the
-audit trail for that case lives only in `audit_log`.
-
-If you want a durable per-DELETE moderation entry too, run a migration:
-
-```sql
-ALTER TABLE moderation_actions
-  MODIFY photo_id CHAR(36) NULL,
-  DROP FOREIGN KEY fk_modlog_photo,
-  ADD CONSTRAINT fk_modlog_photo
-    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE SET NULL;
-```
-
-…then update `routes/moderation.php` to insert the moderation_actions row
-unconditionally (the FIXME comment in that file marks the spot).
-
-### 2. S3 CORS allowed origins — `infra/s3.tf` + `infra/variables.tf`
+### 1. S3 CORS allowed origins — `infra/s3.tf` + `infra/variables.tf`
 The bucket's `allowed_origins` used to read from `var.cognito_logout_urls`,
 which is unrelated and surprising. There is now a dedicated
 `var.s3_cors_allowed_origins` variable (default mirrors the previous list so
@@ -162,3 +143,8 @@ Audit pass over the branch surfaced and fixed:
   which lived in the global Cognito-prefix namespace and was non-deterministic
   across machines. Set `cognito_domain_prefix = "pic2map-dev"` in
   `terraform.tfvars` to keep the existing claim — see `terraform.tfvars.example`.
+- `moderation_actions.photo_id` is now `NULL` with `ON DELETE SET NULL` (was
+  `NOT NULL` + `ON DELETE CASCADE`), so DELETE actions and their reasons are
+  recorded too. `routes/moderation.php` now inserts a moderation_actions row
+  unconditionally — the special-case for DELETE is gone. `migrate.php` upgrades
+  existing databases idempotently.

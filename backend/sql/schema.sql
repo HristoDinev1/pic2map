@@ -102,15 +102,18 @@ CREATE TABLE IF NOT EXISTS album_photos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ---------- moderation log --------------------------------------------
+-- photo_id is nullable with ON DELETE SET NULL so the moderation history
+-- (including DELETE actions and the moderator's reason) survives the photo
+-- it referenced. moderator_id stays NOT NULL — every action has an actor.
 CREATE TABLE IF NOT EXISTS moderation_actions (
   id           CHAR(36) NOT NULL PRIMARY KEY,
-  photo_id     CHAR(36) NOT NULL,
+  photo_id     CHAR(36) NULL,
   moderator_id CHAR(36) NOT NULL,
   action       VARCHAR(20) NOT NULL,           -- APPROVE | REJECT | DELETE
   reason       TEXT,
   created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_modlog_photo (photo_id),
-  CONSTRAINT fk_modlog_photo FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+  CONSTRAINT fk_modlog_photo FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE SET NULL,
   CONSTRAINT fk_modlog_moderator FOREIGN KEY (moderator_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 

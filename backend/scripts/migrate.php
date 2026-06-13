@@ -47,4 +47,20 @@ if ((int) $col === 0) {
     echo "+ users.password_hash column added\n";
 }
 
+// moderation_actions.photo_id was originally NOT NULL with ON DELETE CASCADE,
+// which forced the DELETE branch in routes/moderation.php to skip writing a
+// row. Promote it to NULL + ON DELETE SET NULL so every action — including
+// DELETE — is recorded.
+$photoIdNullable = $pdo->query("SELECT IS_NULLABLE FROM information_schema.columns
+    WHERE table_schema = '$dbName' AND table_name = 'moderation_actions'
+      AND column_name = 'photo_id'")->fetchColumn();
+if ($photoIdNullable === 'NO') {
+    $pdo->exec('ALTER TABLE moderation_actions DROP FOREIGN KEY fk_modlog_photo');
+    $pdo->exec('ALTER TABLE moderation_actions MODIFY photo_id CHAR(36) NULL');
+    $pdo->exec('ALTER TABLE moderation_actions
+        ADD CONSTRAINT fk_modlog_photo FOREIGN KEY (photo_id)
+        REFERENCES photos(id) ON DELETE SET NULL');
+    echo "+ moderation_actions.photo_id is now NULL + ON DELETE SET NULL\n";
+}
+
 echo "\xE2\x9C\x93 schema applied\n";
