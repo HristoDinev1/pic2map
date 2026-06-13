@@ -35,11 +35,11 @@ variable "vpc_cidr" {
 
 variable "cognito_callback_urls" {
   type    = list(string)
-  default = ["http://localhost:5173/callback", "https://app.example.com/callback"]
+  default = ["http://localhost:5173/callback"]
 }
 variable "cognito_logout_urls" {
   type    = list(string)
-  default = ["http://localhost:5173", "https://app.example.com"]
+  default = ["http://localhost:5173"]
 }
 
 # Origins allowed to PUT originals to the media bucket via presigned URLs.
@@ -49,5 +49,5 @@ variable "cognito_logout_urls" {
 # app origin in prod. Adding/removing OAuth logout URLs must NOT change CORS.
 variable "s3_cors_allowed_origins" {
   type    = list(string)
-  default = ["http://localhost:5173", "https://app.example.com"]
+  default = ["http://localhost:5173"]
 }
