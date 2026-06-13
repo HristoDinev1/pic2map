@@ -15,17 +15,20 @@ final class LocalAuth
 
     public static function register(string $username, string $email, string $password): array
     {
-        if (!preg_match('/^[A-Za-z0-9_.-]{3,60}$/', $username)) {
-            throw new HttpError(400, 'Validation failed', ['fieldErrors' => ['username' => ['3-60 chars: letters, digits, _ . -']]]);
-        }
+        // The frontend sends the email as both username and email — Cognito's
+        // user pool is configured with email-as-username, and the local driver
+        // mirrors that contract so the two are interchangeable.
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new HttpError(400, 'Validation failed', ['fieldErrors' => ['email' => ['Invalid email address']]]);
+        }
+        if (!preg_match('/^[A-Za-z0-9_.@+-]{3,254}$/', $username)) {
+            throw new HttpError(400, 'Validation failed', ['fieldErrors' => ['username' => ['Invalid username']]]);
         }
         if (strlen($password) < 8) {
             throw new HttpError(400, 'Validation failed', ['fieldErrors' => ['password' => ['At least 8 characters']]]);
         }
         if (Db::one('SELECT id FROM users WHERE username = ? OR email = ?', [$username, $email])) {
-            throw new HttpError(409, 'Username or email already in use');
+            throw new HttpError(409, 'Email already in use');
         }
 
         $id = Uuid::v4();

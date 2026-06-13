@@ -10,7 +10,7 @@ import { authStore } from './auth-store.js';
  */
 export function renderAuthScreen(node, onSignedIn) {
   let mode = 'signIn'; // signIn | signUp | confirm | forgot | reset
-  let pendingUsername = '';
+  let pendingUsername = ''; // the email — it doubles as the Cognito username
   let message = '';
   let error = '';
 
@@ -33,10 +33,10 @@ export function renderAuthScreen(node, onSignedIn) {
     const form = el('form', { class: 'stack', onsubmit: (e) => { e.preventDefault(); submit(); } });
 
     if (mode === 'signIn' || mode === 'signUp' || mode === 'forgot') {
-      form.append(field({ name: 'username', placeholder: 'Username', autocomplete: 'username', required: true }));
-    }
-    if (mode === 'signUp') {
-      form.append(field({ name: 'email', type: 'email', placeholder: 'Email', autocomplete: 'email', required: true }));
+      form.append(field({
+        name: 'email', type: 'email', placeholder: 'Email',
+        autocomplete: mode === 'signUp' ? 'email' : 'username', required: true,
+      }));
     }
     if (mode === 'signIn' || mode === 'signUp' || mode === 'reset') {
       form.append(field({
@@ -90,7 +90,7 @@ export function renderAuthScreen(node, onSignedIn) {
   }
 
   async function resend() {
-    if (!pendingUsername) { error = 'Enter your username first, then request a code.'; draw(); return; }
+    if (!pendingUsername) { error = 'Enter your email first, then request a code.'; draw(); return; }
     try { await auth.resendCode(pendingUsername); message = 'Confirmation code re-sent — check your email.'; error = ''; }
     catch (e) { error = e.message; }
     draw();
@@ -102,14 +102,16 @@ export function renderAuthScreen(node, onSignedIn) {
     const v = values(form);
     try {
       if (mode === 'signIn') {
-        await auth.signIn(v.username, v.password);
+        await auth.signIn(v.email, v.password);
         await authStore.refresh();
         onSignedIn();
         return;
       }
       if (mode === 'signUp') {
-        const result = await auth.signUp(v.username, v.password, v.email);
-        pendingUsername = v.username;
+        // Cognito's user pool uses email as the username (see infra/cognito.tf),
+        // so we send the email as both the username and the email attribute.
+        const result = await auth.signUp(v.email, v.password, v.email);
+        pendingUsername = v.email;
         if (result && result.autoConfirmed) {
           mode = 'signIn';
           message = 'Account created — sign in below.';
@@ -121,7 +123,7 @@ export function renderAuthScreen(node, onSignedIn) {
         return;
       }
       if (mode === 'confirm') {
-        const username = pendingUsername || v.username;
+        const username = pendingUsername || v.email;
         await auth.confirmSignUp(username, v.code);
         pendingUsername = username;
         mode = 'signIn';
@@ -130,8 +132,8 @@ export function renderAuthScreen(node, onSignedIn) {
         return;
       }
       if (mode === 'forgot') {
-        await auth.forgotPassword(v.username);
-        pendingUsername = v.username;
+        await auth.forgotPassword(v.email);
+        pendingUsername = v.email;
         mode = 'reset';
         message = 'Check your email for a reset code.';
         draw();
@@ -150,9 +152,9 @@ export function renderAuthScreen(node, onSignedIn) {
     }
   }
 
-  // Track the username typed so confirm/forgot/reset flows can reuse it.
+  // Track the email typed so confirm/forgot/reset flows can reuse it.
   node.addEventListener('input', (e) => {
-    if (e.target.name === 'username') pendingUsername = e.target.value.trim();
+    if (e.target.name === 'email') pendingUsername = e.target.value.trim();
   });
 
   clear(node);
