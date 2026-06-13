@@ -423,6 +423,20 @@ tbody tr:hover { background: var(--slate-50); }
   padding: 0.15rem 0.35rem; border-radius: 999px; transition: background 0.15s var(--ease), color 0.15s var(--ease);
 }
 .map-popup .close:hover { background: var(--slate-100); color: var(--slate-700); }
+.map-popup-hover {
+  pointer-events: none;
+  width: 14rem;
+  z-index: 5; /* below the click popup (z 6) so it doesn't cover an open one */
+  animation: slideUp 0.12s var(--ease);
+}
+.map-popup-hover .desc {
+  color: var(--slate-600);
+  margin-top: 0.25rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* Tile cross-fade & focus */
 .map-tile { opacity: 0; transition: opacity 0.2s ease-in; }

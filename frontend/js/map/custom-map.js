@@ -107,6 +107,7 @@ export class CustomMap {
     this.markers = [];
     this.tiles = new Map();       // "z/x/y" -> img
     this.popupEl = null;
+    this.hoverPopupEl = null;     // lightweight preview shown on marker hover
     this.pickMarker = null;       // [lat, lng] draft pin in picker mode
     this.selfLocation = null;     // [lat, lng] from geolocation
 
@@ -462,6 +463,7 @@ export class CustomMap {
     const openPhotoId = this.popupEl ? this.popupEl.dataset.photoId : null;
     clear(this.markerLayer);
     this.popupEl = null;
+    this.hoverPopupEl = null;
 
     const width = this.width(), height = this.height();
     const points = this.markers
@@ -504,19 +506,25 @@ export class CustomMap {
   /** A single photo marker — a small framed thumbnail (falls back to a pin). */
   buildMarker(marker, x, y) {
     const thumb = marker.urls && (marker.urls.thumb || marker.urls.medium);
+    const hoverHandlers = {
+      onmouseenter: () => this.showHoverPopup(marker, x, y),
+      onmouseleave: () => this.closeHoverPopup(),
+    };
     if (thumb) {
       return el('button', {
         type: 'button',
         class: 'map-photo-marker', style: `left:${x}px;top:${y}px`,
         title: marker.title, 'aria-label': `Photo: ${marker.title}`,
-        onclick: (e) => { e.stopPropagation(); this.showPopup(marker, x, y); },
+        onclick: (e) => { e.stopPropagation(); this.closeHoverPopup(); this.showPopup(marker, x, y); },
+        ...hoverHandlers,
       }, el('img', { src: thumb, alt: '', draggable: false, loading: 'lazy' }));
     }
     return el('button', {
       type: 'button',
       class: 'map-marker', style: `left:${x}px;top:${y}px`, title: marker.title,
       'aria-label': `Photo: ${marker.title}`,
-      onclick: (e) => { e.stopPropagation(); this.showPopup(marker, x, y); },
+      onclick: (e) => { e.stopPropagation(); this.closeHoverPopup(); this.showPopup(marker, x, y); },
+      ...hoverHandlers,
     });
   }
 
@@ -562,6 +570,27 @@ export class CustomMap {
 
   closePopup() {
     if (this.popupEl) { this.popupEl.remove(); this.popupEl = null; }
+  }
+
+  /** Lightweight tooltip-style preview shown while hovering a marker. */
+  showHoverPopup(photo, x, y) {
+    if (this.popupEl && this.popupEl.dataset.photoId === photo.id) return;
+    this.closeHoverPopup();
+    const img = photo.urls && (photo.urls.medium || photo.urls.thumb);
+    const popup = el('div', { class: 'map-popup map-popup-hover', style: `left:${x}px;top:${y}px` }, [
+      img ? el('img', { src: img, alt: photo.title }) : null,
+      el('div', { class: 'title' }, photo.title || 'Untitled'),
+      el('div', { class: 'sub' }, `by ${photo.ownerUsername || 'unknown'}`),
+      photo.description ? el('div', { class: 'sub desc' }, photo.description) : null,
+      photo.capturedAt ? el('div', { class: 'sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`) : null,
+      photo.createdAt ? el('div', { class: 'sub' }, `Uploaded ${new Date(photo.createdAt).toLocaleDateString()}`) : null,
+    ]);
+    this.markerLayer.appendChild(popup);
+    this.hoverPopupEl = popup;
+  }
+
+  closeHoverPopup() {
+    if (this.hoverPopupEl) { this.hoverPopupEl.remove(); this.hoverPopupEl = null; }
   }
 
   /* A simple metric scale bar (standard slippy-map furniture). */
