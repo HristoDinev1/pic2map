@@ -42,6 +42,15 @@ variable "cognito_logout_urls" {
   default = ["http://localhost:5173"]
 }
 
+# Globally-unique prefix for the Cognito hosted-UI domain
+# (https://<prefix>.auth.<region>.amazoncognito.com). The Cognito-prefix-domain
+# namespace is shared across ALL AWS accounts, so this MUST be unique per
+# deployment. No default on purpose — `terraform apply` should fail loudly
+# until each environment picks its own value.
+variable "cognito_domain_prefix" {
+  type = string
+}
+
 # Origins allowed to PUT originals to the media bucket via presigned URLs.
 # IMPORTANT: this used to share `cognito_logout_urls` — they are unrelated and
 # should be set independently. List exactly the frontend origins that will hit

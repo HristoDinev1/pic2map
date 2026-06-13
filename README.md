@@ -50,22 +50,7 @@
 
 These are tracked here so they don't disappear into a single file's comments.
 
-### 1. Cognito user-pool domain collision — `infra/cognito.tf`
-`aws_cognito_user_pool_domain.main.domain = "${var.project}-${var.environment}"`
-lives in the **global** Cognito hosted-domain namespace (shared across every
-AWS account). The first team to apply `pic2map-dev` claims it; anyone else
-gets "Domain already associated with another user pool".
-
-**Pick one and apply it before the next clean deploy:**
-1. Append an account-unique suffix using `aws_caller_identity`.
-2. Introduce a required `cognito_domain_prefix` variable with no default
-   (recommended — explicit and easiest).
-3. Switch to a custom domain (`auth.example.com` + ACM cert).
-
-A long FIXME comment with the exact code for each option is in
-`infra/cognito.tf` next to the resource.
-
-### 2. moderation_actions schema — `backend/sql/schema.sql`
+### 1. moderation_actions schema — `backend/sql/schema.sql`
 `moderation_actions.photo_id` is `NOT NULL` with `ON DELETE CASCADE` to
 `photos(id)`. The current `routes/moderation.php` therefore **skips** the
 `moderation_actions` row entirely when a moderator chooses DELETE — the
@@ -84,7 +69,7 @@ ALTER TABLE moderation_actions
 …then update `routes/moderation.php` to insert the moderation_actions row
 unconditionally (the FIXME comment in that file marks the spot).
 
-### 3. S3 CORS allowed origins — `infra/s3.tf` + `infra/variables.tf`
+### 2. S3 CORS allowed origins — `infra/s3.tf` + `infra/variables.tf`
 The bucket's `allowed_origins` used to read from `var.cognito_logout_urls`,
 which is unrelated and surprising. There is now a dedicated
 `var.s3_cors_allowed_origins` variable (default mirrors the previous list so
@@ -172,3 +157,8 @@ Audit pass over the branch surfaced and fixed:
   `AUTH_DRIVER=local`. Switched to the driver-aware `auth` facade.
 - `.gitignore`: added `.idea/`, `backend/.app-secret`, `backend/storage/`.
 - `docker-compose.yml`: MariaDB bound to `127.0.0.1:3306` (was `0.0.0.0`).
+- `infra/cognito.tf`: hosted-UI domain prefix is now an explicit required
+  variable (`cognito_domain_prefix`) instead of `${project}-${environment}`,
+  which lived in the global Cognito-prefix namespace and was non-deterministic
+  across machines. Set `cognito_domain_prefix = "pic2map-dev"` in
+  `terraform.tfvars` to keep the existing claim — see `terraform.tfvars.example`.

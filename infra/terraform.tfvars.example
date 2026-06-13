@@ -3,3 +3,5 @@ environment = "dev"
 db_password = "XXXXXXXXXXXXXX"
 cognito_callback_urls = ["http://localhost:5173/callback"]
 cognito_logout_urls   = ["http://localhost:5173"]
+# Globally-unique across ALL AWS accounts. Pick something distinctive.
+cognito_domain_prefix = "pic2map-dev"
