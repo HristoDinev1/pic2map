@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 /**
  * Geotagged photos for the map — port of backend/src/routes/map.ts.
- * Returns all PUBLIC + APPROVED photos plus the caller's own (any visibility).
+ * Returns every PUBLIC photo that hasn't been REJECTED, plus the caller's own
+ * (any visibility, any status). REJECTED is the moderator's "hide it" verdict;
+ * PENDING and APPROVED are both visible so public uploads work out of the box
+ * on installs without an active moderation queue.
  * Optional bbox filter: ?minLat&minLng&maxLat&maxLng
  */
 return function (Router $r): void {
@@ -29,7 +32,7 @@ return function (Router $r): void {
             "SELECT p.*, u.username AS owner_username
              FROM photos p JOIN users u ON u.id = p.owner_id
              WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
-               AND ( (p.visibility='PUBLIC' AND p.status='APPROVED') OR p.owner_id = ? )
+               AND ( (p.visibility='PUBLIC' AND p.status <> 'REJECTED') OR p.owner_id = ? )
                $bbox
              ORDER BY p.captured_at IS NULL, p.captured_at DESC
              LIMIT 2000",

@@ -4,7 +4,7 @@ import { photoCard } from '../components/photo-card.js';
 
 export function renderSearchPage(node) {
   const fields = {
-    username: el('input', { placeholder: 'Username' }),
+    username: el('input', { placeholder: 'Username or email' }),
     album: el('input', { placeholder: 'Album' }),
     title: el('input', { placeholder: 'Photo title' }),
     dateFrom: el('input', { type: 'date' }),

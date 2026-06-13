@@ -4,7 +4,10 @@ declare(strict_types=1);
 /**
  * Unified search — port of backend/src/routes/search.ts.
  * Optional query params: username, album, title, dateFrom, dateTo,
- * minLat,minLng,maxLat,maxLng (GPS area). Visibility rule: public+approved OR own.
+ * minLat,minLng,maxLat,maxLng (GPS area). Visibility rule: PUBLIC and not
+ * REJECTED, OR owned by the caller. (REJECTED is the moderator's "hide it"
+ * verdict — PENDING and APPROVED are both visible so public uploads work
+ * out of the box on installs without an active moderation queue.)
  */
 return function (Router $r): void {
     $r->get('/search', function () {
@@ -20,9 +23,16 @@ return function (Router $r): void {
         $maxLng = Http::query('maxLng');
 
         $params = [$user['id']];
-        $where = ["((p.visibility='PUBLIC' AND p.status='APPROVED') OR p.owner_id = ?)"];
+        $where = ["((p.visibility='PUBLIC' AND p.status <> 'REJECTED') OR p.owner_id = ?)"];
 
-        if ($username) { $where[] = 'u.username LIKE ?'; $params[] = "%$username%"; }
+        if ($username) {
+            // The "username" field accepts a username OR an email — accounts
+            // created via the new email-as-username flow store the same value
+            // in both columns, but legacy accounts may differ.
+            $where[] = '(u.username LIKE ? OR u.email LIKE ?)';
+            $params[] = "%$username%";
+            $params[] = "%$username%";
+        }
         if ($title)    { $where[] = 'p.title LIKE ?'; $params[] = "%$title%"; }
         if ($dateFrom) { $where[] = 'COALESCE(p.captured_at, p.created_at) >= ?'; $params[] = $dateFrom; }
         if ($dateTo)   { $where[] = 'COALESCE(p.captured_at, p.created_at) <= ?'; $params[] = $dateTo; }
