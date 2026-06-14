@@ -8,7 +8,7 @@ resource "aws_security_group" "rds" {
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
-    security_groups = [aws_security_group.lambda.id, aws_security_group.app.id, aws_security_group.bastion.id]
+    security_groups = [aws_security_group.lambda.id, aws_security_group.app.id]
   }
   egress {
     from_port   = 0

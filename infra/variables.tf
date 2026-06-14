@@ -58,3 +58,13 @@ variable "s3_cors_allowed_origins" {
   type    = list(string)
   default = ["http://localhost:5173"]
 }
+
+# Public Git URL the backend EC2 clones on first boot.
+variable "backend_repo_url" {
+  type    = string
+  default = "https://github.com/HristoDinev1/pic2map.git"
+}
+variable "backend_repo_branch" {
+  type    = string
+  default = "main"
+}

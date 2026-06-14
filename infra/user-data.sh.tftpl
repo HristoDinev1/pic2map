@@ -1,0 +1,57 @@
+#!/bin/bash
+# Bootstraps the pic2map PHP backend on a fresh Amazon Linux 2023 instance.
+# Runs once at first boot. Idempotent enough that re-running is harmless.
+set -euxo pipefail
+exec > >(tee -a /var/log/pic2map-bootstrap.log) 2>&1
+
+dnf update -y
+dnf install -y php php-pdo php-mysqlnd php-mbstring php-xml php-curl php-gd git
+
+mkdir -p /opt
+if [ ! -d /opt/pic2map ]; then
+  git clone --branch ${repo_branch} ${repo_url} /opt/pic2map
+fi
+
+cat > /opt/pic2map/backend/.env <<'ENV_EOF'
+CORS_ORIGIN=*
+APP_URL=
+AUTH_DRIVER=cognito
+STORAGE_DRIVER=s3
+
+DB_HOST=${db_host}
+DB_PORT=3306
+DB_NAME=${db_name}
+DB_USER=${db_user}
+DB_PASSWORD=${db_password}
+
+AWS_REGION=${aws_region}
+S3_BUCKET=${s3_bucket}
+COGNITO_USER_POOL_ID=${cognito_user_pool_id}
+COGNITO_CLIENT_ID=${cognito_client_id}
+ENV_EOF
+
+# Run migrations (idempotent — the script checks state internally).
+cd /opt/pic2map/backend
+php scripts/migrate.php || echo "migrate.php failed; will retry on next deploy"
+
+# systemd unit so PHP server starts on boot and restarts on crash.
+cat > /etc/systemd/system/pic2map.service <<'SVC_EOF'
+[Unit]
+Description=pic2map backend (PHP built-in server)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pic2map/backend
+ExecStart=/usr/bin/php -S 0.0.0.0:80 -t public public/router.php
+Restart=always
+RestartSec=2
+StandardOutput=append:/var/log/pic2map.log
+StandardError=append:/var/log/pic2map.log
+
+[Install]
+WantedBy=multi-user.target
+SVC_EOF
+
+systemctl daemon-reload
+systemctl enable --now pic2map
