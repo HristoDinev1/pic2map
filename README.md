@@ -4,7 +4,9 @@ Hristo Dinev - 3MI0600383
 Vaya Yandina - 5MI0600284
 Valentina Petrova - 7MI0600307
 
-## Overview
+---
+
+## 1. What PIC2MAP is
 
 PIC2MAP is a self-hostable photo-on-a-map web app. Each user uploads photos
 through the browser; the server extracts the GPS coordinates from the image's
@@ -12,13 +14,13 @@ EXIF metadata, generates thumbnail / medium / large derivatives, and pins the
 photo on a shared interactive map. Photos without EXIF GPS can be geotagged
 manually by clicking the map.
 
-What it does, end to end:
+### What it does, end to end
 
 - **Accounts & roles** — sign-up / sign-in / forgot-password, with three
   roles: `USER` (default), `MODERATOR`, `ADMIN`. The first registered account
   becomes admin automatically. Two interchangeable auth backends ship in the
   same codebase: a self-hosted local driver (passwords stored as bcrypt
-  hashes, HMAC-signed session tokens), and Amazon Cognito.
+  hashes, HMAC-signed session tokens) and Amazon Cognito.
 - **Upload pipeline** — the browser asks the API for a presigned PUT URL,
   uploads the original directly to object storage, and the server (or the
   image-processor Lambda, on AWS) extracts EXIF + generates 320 / 1024 /
@@ -36,463 +38,561 @@ What it does, end to end:
 - **Admin dashboard** — system-wide stats (users, photos, storage),
   user-role management.
 
-Two deployment modes are first-class:
+### Tech stack
 
-1. **Fully local** — MariaDB in Docker, files on the local filesystem,
-   accounts in the same DB. No AWS account, no API keys, no cost.
-2. **AWS** — RDS MariaDB in private subnets, S3 for media, Cognito for
-   accounts, and a Lambda for image processing. See *AWS architecture* below.
+- **Frontend:** plain HTML/CSS/JavaScript (ES modules, no framework, no external libraries) — custom slippy-map over OSM tiles, custom EXIF parser, hash router.
+- **Backend:** PHP (no framework) + PDO / MariaDB.
+- **Image processing:** Node.js 20 + `sharp` + `exifr` (running as a Lambda).
+- **Infrastructure-as-code:** OpenTofu (Terraform-compatible) for everything in `infra/`.
 
-## Technologies
+---
 
-- **Frontend:** plain HTML/CSS/JavaScript (ES modules, no framework, no external libraries) — custom slippy-map over OSM tiles, custom EXIF parser, hash router
-- **Backend:** PHP (no framework) + PDO / MariaDB (MySQL)
-
-## Repository contents
+## 2. Repository contents
 
 | Folder / file | Contents |
 |---|---|
-| `frontend/` | static client (`js/`, `css/`, `index.html`) + tests (`test/`) |
-| `backend/` | REST API (`public/`, `src/`, `sql/schema.sql`, `scripts/migrate.php`) |
-| `infra/` | cloud-deployment configuration (optional) |
-| `README.md` | full documentation and architecture |
+| `frontend/` | Static client (`js/`, `css/`, `index.html`) + tests (`test/`). What gets uploaded to the S3 frontend bucket. |
+| `backend/` | REST API. `public/` is the web-server entry point. `src/` is the application code. `sql/schema.sql` + `scripts/migrate.php` set up the database. |
+| `lambda/image-processor/` | Node.js Lambda code that runs after every S3 upload — EXIF + resizing. |
+| `infra/` | All AWS resources as OpenTofu config. **Cloud is provisioned entirely from here — nothing is clicked in the AWS Console.** |
+| `docker-compose.yml` | Optional. Spins up a local MariaDB if you want to run fully off-cloud. |
+| `README.md` | This file. |
+| `API.md` | REST API reference. |
 
-## Running locally (no external services)
+---
 
-1. **MariaDB/MySQL:** `docker compose up -d` (or a local server on `:3306`)
-2. **Backend:**
-   ```bash
-   cd backend
-   cp .env.example .env
-   php scripts/migrate.php
-   php -S localhost:4000 -t public public/router.php
-   ```
-3. **Frontend:**
-   ```bash
-   cd frontend/js && cp config.example.js config.js
-   cd .. && php -S localhost:5173
-   ```
-4. Open **http://localhost:5173** — the first registered account becomes admin.
+## 3. Architecture (current)
 
-**Tests:** `cd frontend && npm test`
-
-## Notes
-
-- No API keys or external services are required — everything runs locally.
-- A photo with GPS in EXIF appears on the map immediately after upload; a photo without GPS can be geotagged manually through the "Pick on map" editor.
-
-## AWS architecture
-
-Everything in `infra/` is one OpenTofu/Terraform configuration that stands up
-the full cloud side. The PHP backend can run on your laptop, on ECS, or on
-App Runner — the AWS resources don't care; they only see authenticated API
-calls and IAM-signed requests.
-
-### High-level flow
+Everything below this line is running in AWS. **Your laptop only does
+development work** — once you've deployed, the live site doesn't need your
+laptop to be on.
 
 ```
-        ┌────────────────────────────── Browser ───────────────────────────────┐
-        │  static frontend (HTML/JS) served from anywhere                       │
-        └──────────┬─────────────────────────────────┬──────────────────────────┘
-                   │ 1. sign-in (HTTPS)              │ 4. PUT original (HTTPS, presigned)
-                   ▼                                 ▼
-            ┌───────────────┐                ┌──────────────────┐
-            │  Cognito      │                │  S3              │
-            │  user pool    │                │  media bucket    │
-            │  (regional)   │                │  (private)       │
-            └───────┬───────┘                └────────┬─────────┘
-                    │ 2. ID/access tokens             │ 5. ObjectCreated event
-                    ▼                                 ▼
-            ┌───────────────┐ 3. JWT-auth   ┌──────────────────┐
-            │  PHP API      ├──────────────►│  Lambda          │
-            │  /api/*       │ 7. /me, list, │  image-processor │
-            │  (laptop /    │    presign    │  (Node.js +      │
-            │  ECS / App    │◄──────────────┤   sharp + exifr) │
-            │  Runner)      │ 6. update DB  └────────┬─────────┘
-            └───────┬───────┘                        │
-                    │ 6/7. SQL                       │ 6a. PUT thumb/medium/large
-                    ▼                                ▼
-            ┌─────────────────────────────────────────────────┐
-            │   RDS MariaDB (private subnets, no public IP)   │
-            └─────────────────────────────────────────────────┘
-                    ▲ via SSM port-forward
-                    │
-            ┌───────┴───────┐
-            │  Bastion EC2  │  reached only with `aws ssm start-session` —
-            │  (no SSH)     │  no public IP, no inbound rules.
-            └───────────────┘
+                        ┌─────────────────┐
+                        │     Browser     │
+                        └────────┬────────┘
+                                 │ HTTPS
+                                 ▼
+                ┌────────────────────────────────────┐
+                │  CloudFront distribution           │
+                │  https://<dist>.cloudfront.net     │
+                │                                    │
+                │   /         → S3 (frontend bucket) │
+                │   /api/*    → EC2 backend (HTTP)   │
+                └─────────┬───────────────┬──────────┘
+                          │               │
+            ┌─────────────┘               └──────────────┐
+            ▼                                            ▼
+   ┌────────────────┐                          ┌──────────────────────┐
+   │  S3 frontend   │                          │  EC2 t3.micro        │
+   │  (private,     │                          │  PHP backend         │
+   │   served via   │                          │  Public IP (EIP)     │
+   │   OAC only)    │                          │  systemd service     │
+   └────────────────┘                          └──────┬───────────────┘
+                                                      │
+                          ┌───────────────────────────┼─────────────────────┐
+                          │                           │                     │
+                          ▼                           ▼                     ▼
+                  ┌──────────────┐        ┌─────────────────┐     ┌──────────────┐
+                  │ RDS MariaDB  │        │   Cognito       │     │  S3 media    │
+                  │ private subs │        │   user pool     │     │  bucket      │
+                  └──────────────┘        └─────────────────┘     └──────┬───────┘
+                                                                         │ ObjectCreated
+                                                                         ▼
+                                                                ┌────────────────┐
+                                                                │  Lambda        │
+                                                                │  image-        │
+                                                                │  processor     │
+                                                                └─┬────────────┬─┘
+                                                                  │ thumbs     │ update
+                                                                  ▼            ▼
+                                                              S3 media     RDS row
 ```
 
-### What each AWS service does
+The browser makes **one** outbound connection — to CloudFront. CloudFront
+splits the traffic by URL path:
 
-| Service | What it is here | Configured in |
-|---|---|---|
-| **VPC** + 2 public + 2 private subnets, IGW, NAT, route tables | Network isolation. The DB and Lambda live in private subnets and reach the internet only through a single NAT gateway. The bastion lives in private subnets too — there is intentionally **no SSH path in**. | `infra/vpc.tf` |
-| **S3** (`pic2map-media-<env>`) | Object storage for everything image-shaped. Layout: `originals/{userId}/{photoId}.{ext}` for the upload, plus `thumbs/`, `medium/`, `large/` for the renditions written by Lambda. Public access is blocked at the bucket level; the browser only ever sees presigned URLs (PUT for upload, GET for view), each scoped to one object and one short expiry. CORS allows `PUT/GET/HEAD` from the configured frontend origins. Versioning + AES-256 SSE on. | `infra/s3.tf`, `backend/src/S3.php` |
-| **Cognito** (User Pool + Hosted UI domain + App Client) | Identity provider when `AUTH_DRIVER=cognito`. Sign-up, email verification, password reset, JWT issuance — all handled by Cognito. The pool is configured with `username_attributes = ["email"]`, so a user's email *is* their Cognito username. Two groups (`Moderators`, `Administrators`) drive the app's role mapping. The web client uses the `code` OAuth flow plus `USER_PASSWORD_AUTH` for the direct-from-browser sign-in path in `frontend/js/cognito.js`. | `infra/cognito.tf`, `backend/src/Cognito.php`, `frontend/js/cognito.js` |
-| **RDS MariaDB 11.4** | Source of truth for users, photos, albums, moderation log, audit log. Lives in private subnets; reached by Lambda directly (same VPC) and by the API via security-group rules; reached from your laptop only through the SSM tunnel (no public endpoint). Storage encrypted at rest, daily automated backups. | `infra/rds.tf`, `backend/sql/schema.sql` |
-| **Lambda** (`pic2map-image-processor-<env>`) | Node.js 20 function that runs **inside the VPC** so it can talk to RDS over the private network. Triggered by an S3 `ObjectCreated:*` event with prefix `originals/`. Pulls the upload, extracts EXIF GPS + capture date with `exifr`, generates three resized JPEGs with `sharp`, writes them back under `thumbs/medium/large/`, and updates the matching `photos` row with size / GPS / capture-date / `process_state='READY'`. The frontend polls `/api/photos/{id}` until `process_state` flips. | `infra/lambda.tf`, `lambda/image-processor/index.js` |
-| **IAM roles** | Two least-privilege roles. The Lambda role grants S3 `GetObject/PutObject` on the media bucket only and the AWS-managed `AWSLambdaVPCAccessExecutionRole` (so the function can attach an ENI to the private subnet and write CloudWatch logs). The App role grants S3 `GetObject/PutObject/DeleteObject` plus a small set of `cognito-idp:Admin*` actions for role management; assumable by `ecs-tasks` and `apprunner` so the same role works in both deployment shapes. | `infra/iam.tf` |
-| **CloudWatch** | Logs + alarms. The Lambda gets an explicit log group with 30-day retention (otherwise Lambda would auto-create one with no retention cap). Two alarms ship out of the box: `pic2map-image-processor-errors` (>1 error per 5 min) and `pic2map-rds-cpu-high` (>80% CPU for two consecutive 5-minute windows). | `infra/cloudwatch.tf` |
-| **EC2 t3.micro bastion** | Tiny private-subnet host whose only job is to be the other end of an SSM port-forward into RDS. No public IP, no inbound rules, no SSH key. Eligible for the 12-month Free Tier; stop it with `aws ec2 stop-instances` when you're done for the day so you only pay ~$0.80/mo for the EBS root volume. | `infra/bastion.tf` |
-| **Systems Manager (SSM)** | Reaches the bastion without exposing it. The bastion's IAM instance profile attaches `AmazonSSMManagedInstanceCore`, so `aws ssm start-session --document AWS-StartPortForwardingSessionToRemoteHost` opens a TCP tunnel from a local port on your laptop to RDS:3306 inside the VPC. SSM itself is free; no NAT charges either, since the agent uses the VPC endpoint path. | `infra/bastion.tf`, step 4 below |
+- `/...` → static frontend files from the private S3 bucket (signed by an
+  Origin Access Control policy, so the bucket itself stays private).
+- `/api/...` → forwarded as HTTP to the EC2 backend's Elastic-IP DNS name.
+  CloudFront's HTTPS cert handles the public-facing TLS, and the EC2's
+  security group only accepts inbound traffic from CloudFront's
+  origin-facing IPs. So even though the EC2 listens on plain HTTP, nobody
+  on the internet can hit it directly.
 
-### Two key request flows
+---
 
-**Sign in (Cognito mode).**  The browser POSTs `username/password` straight
-to the regional `cognito-idp` endpoint and gets back an ID token + refresh
-token. Every subsequent API call carries the ID token in `Authorization:
-Bearer …`; the PHP backend verifies it against the Cognito JWKS, maps the
-`cognito:groups` claim onto `USER/MODERATOR/ADMIN`, and synthesises a `users`
-row on first sight (kept in sync on every request). Sign-out clears the
-local session and globally revokes the refresh token through Cognito.
+## 4. AWS services and what each one does
 
-**Upload a photo.**
+| Service | Configured in | What it does for pic2map | Free tier |
+|---|---|---|---|
+| **VPC** + 2 public + 2 private subnets, IGW, NAT, route tables | `infra/vpc.tf` | Network isolation. Backend EC2 sits in a public subnet (so it has internet for `dnf install`); RDS and Lambda sit in private subnets. | Always free (NAT Gateway is **not** — see §11). |
+| **S3 — frontend bucket** (`pic2map-frontend-<env>`) | `infra/frontend.tf` | Stores the static HTML/CSS/JS files. Bucket is private; only CloudFront can read it. | 5 GB / 12 months. |
+| **S3 — media bucket** (`pic2map-media-<env>`) | `infra/s3.tf` | Stores photos: `originals/{userId}/{photoId}.{ext}` plus `thumbs/`, `medium/`, `large/` derivatives. CORS allows `PUT/GET/HEAD` from the configured frontend origins. | Same as above (shared 5 GB pool). |
+| **CloudFront** distribution | `infra/frontend.tf` | The single public URL of the site. Two origins: S3 frontend (default) and the EC2 backend (path `/api/*`). Provides free HTTPS via the AWS-managed `*.cloudfront.net` cert. SPA fallback (`403/404 → /index.html`) so the client-side router can resolve any path. | 1 TB egress / month, **always** free. |
+| **EC2 t3.micro backend** | `infra/backend.tf` | Runs the PHP REST API behind a `php -S` server managed by `systemd`. Reachable only from CloudFront. Boots itself by `git clone`-ing this repo on first launch — no manual `scp` of code. | 750 hrs / month / 12 months. |
+| **Elastic IP** | `infra/backend.tf` | Stable public IP for the EC2 (so the CloudFront origin DNS keeps working across stop/start). | Free while attached to a running instance. |
+| **Cognito** (User Pool, Hosted UI domain, App Client) | `infra/cognito.tf` | Sign-up, email verification, sign-in, password reset, JWT issuance. The pool has groups `Moderators` and `Administrators` which map to app roles. | 50,000 monthly active users, **always** free. |
+| **RDS MariaDB 11.4** | `infra/rds.tf` | Source of truth for users, photos, albums, moderation log, audit log. Sits in private subnets — no public IP. The backend EC2 reaches it directly because it's in the same VPC. | 750 hrs `db.t3.micro` / month / 12 months. |
+| **Lambda** (`image-processor-<env>`) | `infra/lambda.tf`, `lambda/image-processor/` | Node.js 20 function inside the VPC. Triggered by `s3:ObjectCreated:*` on `originals/`. Pulls the original, extracts EXIF GPS + capture date, generates three resized JPEGs, writes them back, updates the photo row to `READY`. | 1M requests / month, **always** free. |
+| **IAM** | `infra/iam.tf` | Two least-privilege roles: Lambda (S3 + VPC ENIs + logs) and App (S3 presign + Cognito admin + SSM Session Manager). The EC2 assumes the App role via an instance profile — no static keys anywhere. | Always free. |
+| **CloudWatch** | `infra/cloudwatch.tf` | Lambda log group with 30-day retention, alarms for Lambda errors and RDS CPU. EC2 logs go to `journalctl` and `/var/log/pic2map.log` on the box itself. | Limited free tier. |
+| **Systems Manager (SSM)** | `infra/iam.tf` | Lets you `aws ssm start-session --target <id>` into the backend EC2 with no SSH key, no port 22, no public exposure. | Free. |
 
-1. Browser → API: `POST /api/photos/presign` with the filename and
-   content-type. The API inserts a `photos` row with `process_state =
-   UPLOADED` and returns a one-time presigned PUT URL.
-2. Browser → S3: `PUT <presigned-url>` with the raw image bytes. CORS
-   preflight has to pass first — the bucket's CORS rule allows `PUT/GET/HEAD`
-   from the configured frontend origins.
-3. S3 → Lambda: `s3:ObjectCreated:*` event with prefix `originals/` invokes
-   the image-processor.
-4. Lambda → S3: downloads the original, runs `exifr` (GPS + capture date) and
-   `sharp` (320 / 1024 / 2048-px JPEGs), uploads the three derivatives.
-5. Lambda → RDS: updates the same `photos` row with width/height/size, GPS,
-   `captured_at`, the three derivative S3 keys, and `process_state =
-   READY` (or `FAILED` plus the error message).
-6. Browser → API: polls `GET /api/photos/{id}` and renders the thumbnail
-   once `process_state` flips. View URLs are short-lived presigned GETs
-   minted by the API on demand — the bucket itself stays private.
+### What's no longer there
 
-In **fully-local mode** the same flow uses the local filesystem instead of
-S3, and runs the `exifr/sharp` work synchronously inside PHP — no Lambda,
-no event, no IAM, but the contract on the frontend is identical.
+If you have an older clone/branch you might see references to a **bastion EC2**
+or an **SSM port-forward tunnel** to RDS. Those are gone. Once the backend
+moved into the VPC it can talk to RDS directly, so the tunnel was redundant.
 
-## Running against AWS (private RDS via SSM tunnel)
+---
 
-This is what you actually need to do, end-to-end, to bring up the project
-against the AWS resources defined in `infra/`. The backend still runs on
-your laptop — the cloud side is RDS + S3 + Cognito + the image-processor
-Lambda. RDS lives in private subnets (correct — DBs should never be public),
-so your laptop reaches it through an SSM port-forwarding tunnel into a tiny
-bastion instance.
+## 5. Setup case A — fresh clone, never run before
 
-No values in this section are real — every `<placeholder>` either comes from
-`tofu output` after a successful `apply`, or from a value **you choose** and
-put in `infra/terraform.tfvars` (which is gitignored).
+This is the path for someone who has just `git clone`'d the repo and wants
+the live AWS site stood up for the first time.
 
-### 0. Prerequisites
+### A.0. Prerequisites — install on your laptop
 
-- **AWS account** with permissions to create VPC / RDS / Lambda / IAM / EC2 / SSM resources.
-- **AWS CLI** configured (`aws configure`) — verify with `aws sts get-caller-identity`.
-- **OpenTofu** (or Terraform — commands are interchangeable; this repo uses `tofu`).
-- **PHP 8.x** and **Docker** (Docker only needed if you also want a local DB; not required for the AWS path).
-- **AWS Session Manager Plugin** — install instructions in step 3 below.
+- **An AWS account.** A new one is fine; everything in this project fits in
+  the free tier except the NAT Gateway (~$32/mo, see §11 for how to remove
+  it).
+- **AWS CLI v2.** Verify with `aws --version`.
+- **OpenTofu** (or Terraform — commands are interchangeable; this README
+  uses `tofu`). Verify with `tofu --version`.
+- **Git.** Verify with `git --version`.
+- **AWS Session Manager Plugin.** Needed only if you want to SSM into the
+  EC2 for debugging.
+  - Windows: `winget install Amazon.SessionManagerPlugin`
+  - macOS: `brew install --cask session-manager-plugin`
+  - Linux: see https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
 
-### 1. Fill in `infra/terraform.tfvars`
+### A.1. Configure AWS CLI
 
-Copy the example and edit:
+```bash
+aws configure
+# AWS Access Key ID:     <your IAM user's key>
+# AWS Secret Access Key: <your IAM user's secret>
+# Default region name:   us-east-1
+# Default output format: json
+```
+
+Verify:
+```bash
+aws sts get-caller-identity
+```
+
+You should see your account ID and the IAM user's ARN. **Stop here if this
+errors** — nothing below will work without working credentials.
+
+### A.2. Clone the repo
+
+```bash
+git clone https://github.com/HristoDinev1/pic2map.git
+cd pic2map
+git checkout us-east-1-dev-more-aws    # the AWS-mode branch
+```
+
+### A.3. Fill in `infra/terraform.tfvars`
+
+The TF config has a few values that can't be defaulted (secrets and
+globally-unique names):
+
 ```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Required values you must set (none of these are baked into the repo, all of
-them are either secrets or globally-unique identifiers):
+Open `infra/terraform.tfvars` and set:
 
-| Variable | What it is | Where it comes from |
-|---|---|---|
-| `db_password` | RDS master password | **You choose.** Use a strong random string. Treat as a secret. |
-| `cognito_domain_prefix` | Hosted-UI subdomain, e.g. `pic2map-dev` | **You choose.** Must be globally unique across all AWS Cognito users — pick something project-specific. |
-| `cognito_callback_urls` | OAuth redirect URIs allowed by Cognito | Your real frontend URLs, e.g. `["http://localhost:5173/callback"]` for local. |
-| `cognito_logout_urls` | OAuth post-logout URIs | Same shape as above, without the `/callback`. |
-| `s3_cors_allowed_origins` | Browser origins allowed to PUT to S3 | Your frontend origins. **Different from logout URLs** — see "Known follow-ups" below. |
+```hcl
+# Required: master password for RDS MariaDB. Pick a strong random string.
+db_password = "CHOOSE_A_STRONG_PASSWORD"
 
-`terraform.tfvars` is in `.gitignore` — never commit it. If you need to
-share values across machines, use a secret manager (1Password, AWS Secrets
-Manager, etc.), not git.
+# Required: globally unique across all AWS accounts (it becomes a subdomain
+# of amazoncognito.com). Pick something project-specific.
+cognito_domain_prefix = "pic2map-yourname-dev"
 
-### 2. Provision infrastructure
+# Leave these as-is on the first apply. After the first apply you'll come
+# back and add the real CloudFront URL — see step A.6.
+cognito_callback_urls   = ["http://localhost:5173/callback"]
+cognito_logout_urls     = ["http://localhost:5173"]
+s3_cors_allowed_origins = ["http://localhost:5173"]
+```
+
+`terraform.tfvars` is in `.gitignore` — never commit it.
+
+### A.4. First apply — provision everything
 
 ```bash
-tofu init        # first time only
+tofu init           # first time only, downloads providers
 tofu apply
 ```
 
-Review the plan, type `yes`. First-time apply takes ~10 minutes (RDS is the
-slow one). Subsequent applies are seconds.
+Type `yes` at the prompt. **First apply takes ~10–15 minutes** (RDS and
+CloudFront are slow). When it finishes, capture the outputs:
 
-After apply succeeds, capture the outputs you'll need:
 ```bash
 tofu output
 ```
-You'll see `bastion_instance_id`, `rds_endpoint`, `cognito_user_pool_id`,
-`cognito_client_id`, `cognito_domain`, `media_bucket`, etc. Don't paste
-these into the README or commit them — they're environment-specific. Keep
-the terminal open or write them down somewhere local.
 
-To inspect any of them in the AWS Console:
-- **Bastion EC2:** Console → EC2 → Instances → filter `pic2map-bastion-*`.
-- **RDS:** Console → RDS → Databases → `pic2map-<env>` → "Connectivity & security" → "Endpoint".
-- **Cognito:** Console → Cognito → User pools → `pic2map-<env>`.
-- **S3:** Console → S3 → Buckets → `pic2map-media-<env>`.
-- **Lambda:** Console → Lambda → Functions → `pic2map-image-processor-<env>`.
+You'll see:
+- `frontend_url` — `https://dXXXXXX.cloudfront.net` (the public site URL)
+- `frontend_bucket` — `pic2map-frontend-dev`
+- `backend_instance_id` — `i-0abc...` (for SSM)
+- `backend_public_ip` — the Elastic IP
+- `cognito_user_pool_id`, `cognito_client_id`, `cognito_domain`
+- `media_bucket`, `rds_endpoint`, `lambda_function`, `vpc_id`
 
-### 3. Install the AWS Session Manager Plugin (one-time, per laptop)
+### A.5. Wait ~3 minutes for the EC2 to bootstrap itself
 
-The plugin is **free**, open-source, and so is the SSM service it talks to —
-no AWS charges for sessions or port-forwarding. Install once and forget.
+The EC2 user-data script (`infra/user-data.sh.tftpl`) runs on first boot:
 
-**Windows (winget — easiest):**
-```powershell
-winget install Amazon.SessionManagerPlugin
-```
+1. `dnf install` PHP and modules
+2. `git clone` this repo to `/opt/pic2map`
+3. Write a `.env` for the backend with the RDS endpoint, Cognito IDs, etc.
+4. Run `php scripts/migrate.php` against RDS
+5. Install a `systemd` unit and start `pic2map.service`
 
-**Windows (MSI alternative):**
-Download and run `SessionManagerPluginSetup.exe` from
-https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
-
-**macOS / Linux:** see the same docs page — `brew install` or `.deb` / `.rpm`.
-
-Verify (re-open the terminal first so PATH refreshes):
+You can watch progress via SSM:
 ```bash
-session-manager-plugin --version
+aws ssm start-session --target "$(tofu output -raw backend_instance_id)"
+sudo tail -f /var/log/pic2map-bootstrap.log
+# Press Ctrl+D when you see "Created symlink ... pic2map.service"
 ```
 
-### 4. Open the SSM tunnel to RDS
-
-Run this in a **Git Bash** terminal from `infra/`. Leave the terminal
-running for as long as you want the tunnel open.
-
+Sanity check the service is up:
 ```bash
-BASTION=$(tofu output -raw bastion_instance_id)
-RDS=$(tofu output -raw rds_endpoint | cut -d: -f1)
-
-aws ssm start-session \
-  --target "$BASTION" \
-  --document-name AWS-StartPortForwardingSessionToRemoteHost \
-  --parameters "{\"host\":[\"$RDS\"],\"portNumber\":[\"3306\"],\"localPortNumber\":[\"3307\"]}"
+sudo systemctl status pic2map
+# Active: active (running)  ← what you want
+exit
 ```
 
-Success looks like:
+### A.6. Second apply — register the CloudFront URL with Cognito + S3 CORS
+
+Now that you know the CloudFront URL, edit `infra/terraform.tfvars` and add it
+to all three lists. Replace `dXXXXXX.cloudfront.net` with your real domain
+from `tofu output -raw frontend_url`:
+
+```hcl
+cognito_callback_urls   = ["http://localhost:5173/callback", "https://dXXXXXX.cloudfront.net/callback"]
+cognito_logout_urls     = ["http://localhost:5173", "https://dXXXXXX.cloudfront.net"]
+s3_cors_allowed_origins = ["http://localhost:5173", "https://dXXXXXX.cloudfront.net"]
 ```
-Starting session with SessionId: ...
-Port 3307 opened for sessionId ...
-Waiting for connections...
-```
-
-Now `127.0.0.1:3307` on your laptop is bridged to RDS:3306 inside the VPC.
-Open every other terminal window separately — this one is dedicated to the
-tunnel.
-
-Common errors:
-- `TargetNotConnected` — bastion's SSM agent hasn't checked in yet. Wait
-  ~30s after `tofu apply` and retry.
-- `command not found: tofu` — wrong terminal (use Git Bash, not PowerShell)
-  or OpenTofu isn't installed.
-- `command not found: session-manager-plugin` — re-open the terminal after
-  installing the plugin so PATH refreshes.
-
-### 5. Configure the backend `.env`
 
 ```bash
-cd backend
-cp .env.example .env
+tofu apply
 ```
 
-Set the AWS-mode values (everything else can stay at the local defaults):
+This second apply is fast — it just updates the Cognito client and the
+media bucket's CORS rules.
 
-```
-# Drivers
-STORAGE_DRIVER=s3
-AUTH_DRIVER=cognito
-
-# Database — point at the SSM tunnel, NOT the RDS endpoint directly
-DB_HOST=127.0.0.1
-DB_PORT=3307
-DB_NAME=pic2map
-DB_USER=pic2map
-DB_PASSWORD=<the-db_password-you-chose-in-terraform.tfvars>
-
-# AWS
-AWS_REGION=us-east-1
-S3_BUCKET=<media_bucket from `tofu output`>
-COGNITO_USER_POOL_ID=<cognito_user_pool_id from `tofu output`>
-COGNITO_CLIENT_ID=<cognito_client_id from `tofu output`>
-
-# IAM credentials — only if you're not using a profile / role.
-# Prefer leaving these blank and using `aws configure` profiles instead.
-# AWS_ACCESS_KEY_ID=
-# AWS_SECRET_ACCESS_KEY=
-```
-
-Why `127.0.0.1:3307`? The RDS endpoint hostname won't resolve to anything
-reachable from your laptop — it's a private DNS name inside the VPC. The
-tunnel exposes it as a local port instead.
-
-### 6. Run database migrations
-
-The tunnel must be running for this to work:
-```bash
-php scripts/migrate.php
-```
-This connects to `127.0.0.1:3307` per your `.env`, which the tunnel routes
-to RDS, which is then provisioned with the schema. Idempotent — safe to
-re-run.
-
-### 7. Configure the frontend
+### A.7. Configure the frontend
 
 ```bash
-cd frontend/js
+cd ../frontend/js
 cp config.example.js config.js
 ```
 
-Edit `config.js`:
-- `authDriver` → `'cognito'`
-- `cognitoRegion` → your AWS region (e.g. `'us-east-1'`)
-- `cognitoClientId` → `cognito_client_id` from `tofu output`
+Open `frontend/js/config.js` and set:
 
-The frontend talks to the regional `cognito-idp.<region>.amazonaws.com`
-endpoint directly, so the user-pool id and the hosted-UI domain aren't
-needed in the static client (the backend still needs `COGNITO_USER_POOL_ID`
-in `.env` to verify JWTs).
-
-### 8. Start everything
-
-Three terminals:
-
-| Terminal | Command | Purpose |
-|---|---|---|
-| 1 | `aws ssm start-session ...` (from step 4) | Holds the RDS tunnel open |
-| 2 | `cd backend && php -S localhost:4000 -t public public/router.php` | Backend API |
-| 3 | `cd frontend && php -S localhost:5173` | Static frontend |
-
-Open http://localhost:5173. The first registered account is admin.
-
-### Day-to-day: starting and stopping the bastion to save cost
-
-The bastion is a `t3.micro`. AWS Free Tier covers 750 hours/month for the
-first 12 months; after that it's ~$7.50/mo if left running. Stop it when
-you're done for the day:
-
-```bash
-aws ec2 stop-instances --instance-ids "$(tofu output -raw bastion_instance_id)"
+```js
+window.PIC2MAP_CONFIG = {
+  apiBase: '/api',                                       // relative — same origin as the page
+  authDriver: 'cognito',
+  cognitoRegion: 'us-east-1',
+  cognitoClientId: 'PASTE_FROM_TOFU_OUTPUT',             // tofu output -raw cognito_client_id
+};
 ```
 
-Start it again before opening the tunnel:
+`config.js` is also in `.gitignore`.
+
+### A.8. Upload the frontend to S3
+
+From the **repo root**:
+
 ```bash
-aws ec2 start-instances --instance-ids "$(tofu output -raw bastion_instance_id)"
+aws s3 sync frontend/ "s3://$(cd infra && tofu output -raw frontend_bucket)/" \
+  --exclude "test/*" --exclude "package*.json" \
+  --exclude "node_modules/*" --exclude ".gitignore"
 ```
 
-A stopped instance costs only the EBS root volume (~$0.80/mo). No
-`tofu apply` needed for stop/start — they're runtime state.
+(If the `$(...)` substitution doesn't work in your shell, run
+`tofu output -raw frontend_bucket` first and paste the bucket name in
+literally.)
 
-### Tearing it all down
+### A.9. Open the site
+
+```bash
+cd infra
+tofu output -raw frontend_url
+```
+
+Open that URL in your browser. The first registered account becomes admin.
+
+### A.10. Optional but recommended — invalidate the CloudFront cache after each frontend deploy
+
+CloudFront caches static files aggressively. To force users (including you)
+to see the new files immediately:
+
+```bash
+DIST_ID=$(aws cloudfront list-distributions \
+  --query "DistributionList.Items[?contains(Comment, 'pic2map-frontend')].Id" \
+  --output text)
+aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+```
+
+Without this, expect new file changes to take 5–60 minutes to propagate.
+
+---
+
+## 6. Setup case B — you already deployed, you're coming back later
+
+**Read this first:** AWS resources are persistent. They keep running 24/7
+whether your laptop is on or off, whether the terminal you used to run
+`tofu apply` is open or closed. Closing the terminal does **not** stop or
+break anything in AWS. The CloudFront URL keeps working, the EC2 keeps
+serving traffic, RDS keeps the data.
+
+So in most cases, "getting back to working state" is **literally nothing** —
+just open the CloudFront URL in your browser.
+
+The only times you need to do something:
+
+### B.1. You stopped the EC2 to save money
+
+If you ran `aws ec2 stop-instances` to pause the backend (see §10), it
+won't auto-start. Bring it back:
+
+```bash
+cd infra
+aws ec2 start-instances --instance-ids "$(tofu output -raw backend_instance_id)"
+```
+
+Wait ~30 seconds for it to boot, then re-test the site. The Elastic IP is
+still attached, so the CloudFront origin keeps working — no DNS changes
+needed.
+
+### B.2. You changed backend code locally and want it deployed
+
+```bash
+# 1. Push the change to GitHub
+git add ...
+git commit -m "..."
+git push origin us-east-1-dev-more-aws
+
+# 2. Pull on the EC2 and restart the service
+aws ssm start-session --target "$(cd infra && tofu output -raw backend_instance_id)"
+# now inside the EC2:
+cd /opt/pic2map
+sudo git pull
+sudo systemctl restart pic2map
+sudo systemctl status pic2map      # confirm Active: active (running)
+exit
+```
+
+If the change includes a DB schema migration:
+```bash
+# inside the EC2, after git pull:
+cd /opt/pic2map/backend
+php scripts/migrate.php
+```
+
+### B.3. You changed frontend code locally and want it deployed
+
+```bash
+# From the repo root
+aws s3 sync frontend/ "s3://$(cd infra && tofu output -raw frontend_bucket)/" \
+  --exclude "test/*" --exclude "package*.json" \
+  --exclude "node_modules/*" --exclude ".gitignore"
+
+# Invalidate the CloudFront cache
+DIST_ID=$(aws cloudfront list-distributions \
+  --query "DistributionList.Items[?contains(Comment, 'pic2map-frontend')].Id" \
+  --output text)
+aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+```
+
+### B.4. You changed something in `infra/*.tf`
+
+```bash
+cd infra
+tofu apply
+```
+
+If the change was specifically to `user-data.sh.tftpl` or the EC2's
+inputs, TF will **replace the EC2** (because of `user_data_replace_on_change`
+in `backend.tf`) — meaning a fresh boot, a fresh `git clone`, a fresh
+`migrate.php`. Expect ~3 minutes of `/api/*` 502 while the new instance
+bootstraps.
+
+### B.5. You forgot the URLs / IDs
+
+```bash
+cd infra
+tofu output
+```
+
+Everything you need is here. If `tofu output` itself errors, run
+`tofu init` first (state lives locally in `infra/.terraform/` — if you
+switched machines, you'll need to commit/share state somehow, or import
+existing resources).
+
+### B.6. You see "I get a 502 on /api/*"
+
+The backend EC2 is down or the PHP service crashed.
+
+```bash
+aws ssm start-session --target "$(cd infra && tofu output -raw backend_instance_id)"
+sudo systemctl status pic2map
+sudo journalctl -u pic2map -e         # last lines of the log
+sudo tail -f /var/log/pic2map.log     # live tail
+```
+
+Most common causes:
+- DB migration that didn't apply.
+- `.env` got out of sync (e.g., RDS endpoint changed).
+- PHP fatal error from a new commit. Roll back: `cd /opt/pic2map && sudo git reset --hard HEAD~1 && sudo systemctl restart pic2map`.
+
+---
+
+## 7. Day-to-day operations cheat sheet
+
+| Task | Command |
+|---|---|
+| Open the site | Browser → `tofu output -raw frontend_url` |
+| Deploy backend code | `git push` → SSM in → `cd /opt/pic2map && sudo git pull && sudo systemctl restart pic2map` |
+| Deploy frontend code | `aws s3 sync frontend/ s3://$BUCKET/...` + CloudFront invalidation |
+| Run a DB migration | SSM in → `cd /opt/pic2map/backend && php scripts/migrate.php` |
+| Tail backend logs | SSM in → `sudo journalctl -u pic2map -f` |
+| Inspect the DB | SSM in → `mysql -h $DB_HOST -u $DB_USER -p` (vars are in `/opt/pic2map/backend/.env`) |
+| Stop the EC2 (save cost) | `aws ec2 stop-instances --instance-ids $(tofu output -raw backend_instance_id)` |
+| Start the EC2 again | `aws ec2 start-instances --instance-ids $(tofu output -raw backend_instance_id)` |
+| Re-bootstrap the EC2 from scratch | `tofu taint aws_instance.backend && tofu apply` |
+| Look at CloudWatch logs (Lambda) | AWS Console → CloudWatch → Log groups → `/aws/lambda/pic2map-image-processor-dev` |
+
+---
+
+## 8. Tearing it all down
 
 ```bash
 cd infra
 tofu destroy
 ```
 
-Will prompt for confirmation. Everything created by `infra/` goes away —
-including the RDS instance, so any photos in the DB are deleted (S3 objects
-too if the bucket is empty; otherwise you'll need to empty it first).
+Confirms with `yes`. Removes everything created by `infra/` — the EC2,
+Elastic IP, CloudFront distribution, both S3 buckets, RDS, Cognito user pool,
+Lambda, VPC, NAT Gateway, IAM roles. **All photos in the DB and S3 are
+permanently deleted** (S3 bucket must be emptied first; if `destroy`
+complains about a non-empty bucket, run `aws s3 rm s3://<bucket> --recursive`
+and re-run).
 
 ---
 
-## Known follow-ups (need a decision before next AWS deploy)
+## 9. Optional: fully-local mode (no AWS, no internet)
 
-These are tracked here so they don't disappear into a single file's comments.
+The codebase still supports running everything on your laptop. Useful for
+offline development or testing without touching cloud:
 
-### 1. S3 CORS allowed origins — `infra/s3.tf` + `infra/variables.tf`
-`var.s3_cors_allowed_origins` defaults to `["http://localhost:5173"]` for
-local development. When deploying to a real domain, set it in
-`terraform.tfvars` to **only** the real frontend origin(s) that browser-PUT
-to S3 — e.g. `["https://pic2map.example.com"]`. OAuth logout URLs and CORS
-origins are independent concerns and should not share a list.
-
-## Troubleshooting: "upload works from the terminal but not from the UI"
-
-Symptom: `aws s3 cp` / `curl -X PUT <presigned-url>` succeeds, but clicking
-**Upload** in the browser fails silently or with a red "(failed)" entry in
-DevTools → Network. **Almost always S3 CORS.** The browser enforces CORS;
-`curl` and the AWS CLI don't, which is exactly this asymmetry.
-
-The browser flow is:
-1. `POST /api/photos/presign` → API returns `https://<bucket>.s3.<region>.amazonaws.com/...?X-Amz-...`
-2. Browser sends a **CORS preflight `OPTIONS`** to that URL (the request is
-   non-simple because `Content-Type: image/jpeg`).
-3. Only if the `OPTIONS` response has matching `Access-Control-Allow-Origin`
-   does the browser send the actual `PUT`.
-
-If S3 doesn't return matching CORS headers on step 2, the actual PUT never
-leaves the browser — you won't see it in CloudTrail or S3 access logs, which
-makes this look like "the request just disappeared".
-
-**Diagnose**
-
-Open DevTools → Network and look for an `OPTIONS` request to
-`*.s3.*.amazonaws.com`. If it's red / 403 / `(failed) net::ERR_FAILED` and no
-`PUT` follows, it's CORS.
-
-Then dump the live config:
 ```bash
-aws s3api get-bucket-cors --bucket <your-bucket>
+# 1. MariaDB in Docker
+docker compose up -d
+
+# 2. Backend
+cd backend
+cp .env.example .env
+# Leave AUTH_DRIVER=local and STORAGE_DRIVER=local
+php scripts/migrate.php
+php -S localhost:4000 -t public public/router.php
+
+# 3. Frontend
+cd frontend/js && cp config.example.js config.js
+# Leave authDriver: 'local' and apiBase: 'http://localhost:4000/api'
+cd .. && php -S localhost:5173
+
+# 4. Open http://localhost:5173 — first account is admin.
 ```
-Confirm `PUT` is in `AllowedMethods` and your **exact** frontend origin
-(scheme + host + port, no trailing slash) is in `AllowedOrigins`.
 
-**Fix**
+This mode does **not** touch AWS — accounts are stored in the local DB,
+photos in `backend/storage/`, image processing happens synchronously in PHP
+(GD + custom EXIF parser instead of `sharp` + `exifr`).
 
-1. Set `s3_cors_allowed_origins` in `terraform.tfvars` to the real frontend
-   origin(s) — e.g. `["http://localhost:5173", "https://pic2map.example.com"]`.
-   `127.0.0.1` and `localhost` are *different* origins; list both if you use
-   both. No trailing slashes.
-2. `terraform apply`.
-3. **Hard-reload** the browser. The CORS preflight is cached per
-   `max_age_seconds` (currently 3000 s in `infra/s3.tf`); a soft reload will
-   keep using the stale "denied" answer until that expires.
+You can run local mode side-by-side with the deployed AWS site — they share
+no state.
 
-**Other things to rule out (much less likely once CORS is verified)**
+---
 
-- **Mixed content**: page on `https://`, presigned URL on `http://`. Browsers
-  silently block this. The repo always builds `https://...amazonaws.com`, so
-  this only happens if something downstream rewrote the URL.
-- **Wrong region in the host**: a presigned URL signed for region X but
-  pointing at `<bucket>.s3.<Y>.amazonaws.com` returns 301 + a CORS-less body
-  on `OPTIONS`. Make sure `AWS_REGION` on the API matches the bucket's
-  region.
-- **Adblockers / privacy extensions** that strip the `Origin` header on
-  cross-origin uploads. Try an incognito window with extensions disabled.
-- **Content-Type signature mismatch**: NOT a problem in this repo —
-  `Sigv4.php` only signs the `host` header (`X-Amz-SignedHeaders=host`), so
-  the browser's `Content-Type` is free to be anything.
+## 10. Cost-saving tips
 
-## Implementation notes
+The project sits in AWS Free Tier with one big exception: the **NAT
+Gateway** (~$32/month, never free). Everything else is either always-free
+(CloudFront 1 TB, Cognito 50k MAU, Lambda 1M reqs) or 12-month free
+(EC2 t3.micro, RDS db.t3.micro, S3 5 GB, Application Load Balancer).
 
-A few design decisions that aren't obvious from reading any single file:
+To minimize spend:
 
-- **AWS credentials.** `backend/src/AwsCredentials.php` resolves credentials
-  in the standard SDK order (env → ECS task metadata → EC2 IMDSv2), so the
-  IAM role from `infra/iam.tf` is picked up automatically without needing
-  static keys in `.env`.
-- **Storage driver auto-detect** (`backend/src/Storage.php`) flips to `s3`
-  when `S3_BUCKET` is set and any IAM-role indicator is present
-  (`AWS_CONTAINER_CREDENTIALS_*`, `AWS_EXECUTION_ENV`); otherwise it falls
-  back to the local filesystem. Set `STORAGE_DRIVER` explicitly to override.
-- **Photo lifecycle states** are tracked in two independent columns:
-  `process_state` (`UPLOADED → PROCESSING → READY | FAILED`) is the
-  pipeline's view; `status` (`PENDING | APPROVED | REJECTED`) is the
-  moderator's. The map and search show `PUBLIC` photos in any non-`REJECTED`
-  state, so on installs without an active moderation queue the default
-  behaviour is "public means visible".
-- **Moderation log** (`moderation_actions`) keeps `photo_id` nullable with
-  `ON DELETE SET NULL`, so a moderator's `DELETE` action and its reason
-  survive the photo it referenced. Every action gets a row — there is no
-  special case.
-- **Cognito hosted-UI domain prefix** lives in a global per-region namespace
-  shared across all AWS accounts, so it has to be an explicit
-  `cognito_domain_prefix` variable rather than a derived default. Pick
-  something project-specific in `terraform.tfvars`.
+1. **Stop the EC2 when you're not actively developing** — the Elastic IP
+   stays attached for free; only the EBS root volume (~$0.80/mo) charges.
+   ```bash
+   aws ec2 stop-instances --instance-ids "$(tofu output -raw backend_instance_id)"
+   ```
+2. **Remove the NAT Gateway when you don't need Lambda outbound internet.**
+   This is "step 3" of the AWS-migration plan and saves the bulk of the
+   cost; Lambda only needs S3 (which can use a free Gateway VPC Endpoint)
+   and RDS (which is already in-VPC). Not done yet — TODO.
+3. **`tofu destroy` between work sessions** — slowest path, but $0 while
+   destroyed. Ten minutes to bring everything back next time.
+
+---
+
+## 11. Known follow-ups
+
+- **Remove the NAT Gateway.** Add a `com.amazonaws.s3` Gateway VPC Endpoint
+  in `vpc.tf` and delete the NAT — the only thing that uses NAT is Lambda's
+  outbound to S3, which the endpoint handles for free.
+- **Move secrets out of the EC2 user-data into SSM Parameter Store.** Today
+  the DB password is interpolated into `user-data.sh.tftpl` and ends up in
+  EC2 instance metadata at rest. Acceptable for a school project; not for
+  production.
+- **Replace `php -S` with nginx + `php-fpm`.** The PHP built-in server is
+  single-threaded and officially "not for production". Fine for an exam
+  project, but a single hung request blocks the next one.
+
+---
+
+## 12. Troubleshooting
+
+### "Failed to fetch" on the frontend, even though `/` loads
+DevTools → Network. Look at the `/api/*` request:
+- **502 Bad Gateway** → backend is down. SSM in, `sudo systemctl status pic2map`.
+- **403 with `<Error><Code>Missing...</Code>`** → CloudFront origin misconfigured. `tofu apply` to refresh.
+- **CORS error** → only happens if you bypassed CloudFront somehow; `/api/*` is same-origin.
+
+### "redirect_uri does not match" from Cognito
+You forgot step A.6 (adding the CloudFront URL to `cognito_callback_urls`).
+Edit `terraform.tfvars`, add it, `tofu apply`, hard-reload the page.
+
+### S3 PUT (upload) fails silently
+DevTools → Network. Look for an `OPTIONS` request to `*.s3.*.amazonaws.com`
+that's red. CloudFront URL missing from `s3_cors_allowed_origins` — fix in
+tfvars and `tofu apply`. Hard-reload (CORS preflight is cached for 3000 s).
+
+### `tofu apply` hangs on a destroy step (~15 min)
+Almost always: a security group can't be deleted because another security
+group still references it (e.g., the RDS SG referencing the bastion SG
+during the migration). Find it and remove the rule manually:
+- Console: EC2 → Security Groups → `pic2map-rds-*` → Inbound rules → Edit → delete the row pointing at the SG TF wants to destroy → Save.
+- TF retries every 10 s and unblocks within seconds.
+
+### EC2 user-data script changed but the EC2 still has the old code
+`backend.tf` sets `user_data_replace_on_change = true`, so changing the
+template should force a new EC2. If it didn't, force it:
+```bash
+tofu taint aws_instance.backend
+tofu apply
+```
+
+### "I broke the .env on the EC2 and the backend won't start"
+Either fix it via SSM (`sudo nano /opt/pic2map/backend/.env`), or recreate
+the box: `tofu taint aws_instance.backend && tofu apply` — the `.env` is
+re-generated from `terraform.tfvars` on every fresh boot.
