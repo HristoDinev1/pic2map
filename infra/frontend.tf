@@ -44,9 +44,11 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # Backend EC2 origin for /api/* — HTTP only, restricted at the SG by
-  # CloudFront origin-facing IPs.
+  # CloudFront origin-facing IPs. CloudFront rejects raw IPs as origins,
+  # so we use the AWS-generated DNS name for the Elastic IP (stable while
+  # the EIP stays attached to this instance).
   origin {
-    domain_name = aws_eip.backend.public_ip
+    domain_name = aws_eip.backend.public_dns
     origin_id   = "ec2-backend"
     custom_origin_config {
       http_port              = 80
