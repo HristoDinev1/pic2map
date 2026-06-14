@@ -66,5 +66,5 @@ variable "backend_repo_url" {
 }
 variable "backend_repo_branch" {
   type    = string
-  default = "main"
+  default = "us-east-1-dev"
 }
