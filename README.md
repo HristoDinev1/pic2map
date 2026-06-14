@@ -1,14 +1,10 @@
-# PIC2MAP — изпитен проект
+# PIC2MAP — exam project
 
-Христо Динев - 3MI0600383
-Вая Яндина - 5MI0600284
-Валентина Петрова - 7MI0600307
+Hristo Dinev - 3MI0600383
+Vaya Yandina - 5MI0600284
+Valentina Petrova - 7MI0600307
 
-## Описание
-
-Уеб приложение за качване на снимки, което автоматично извлича GPS координатите от EXIF данните на изображението и ги показва като маркери върху интерактивна карта. Поддържа потребителски акаунти, лична галерия, албуми, търсене и редакция на местоположение чрез избор върху картата.
-
-## Overview (English)
+## Overview
 
 PIC2MAP is a self-hostable photo-on-a-map web app. Each user uploads photos
 through the browser; the server extracts the GPS coordinates from the image's
@@ -47,23 +43,23 @@ Two deployment modes are first-class:
 2. **AWS** — RDS MariaDB in private subnets, S3 for media, Cognito for
    accounts, and a Lambda for image processing. See *AWS architecture* below.
 
-## Технологии
+## Technologies
 
-- **Frontend:** чист HTML/CSS/JavaScript (ES модули, без framework и без външни библиотеки) — собствена slippy-map карта върху OSM тайлове, собствен EXIF парсер, hash рутер
-- **Backend:** PHP (без framework) + PDO / MariaDB (MySQL)
+- **Frontend:** plain HTML/CSS/JavaScript (ES modules, no framework, no external libraries) — custom slippy-map over OSM tiles, custom EXIF parser, hash router
+- **Backend:** PHP (no framework) + PDO / MariaDB (MySQL)
 
-## Съдържание на архива
+## Repository contents
 
-| Папка / файл | Съдържание |
+| Folder / file | Contents |
 |---|---|
-| `frontend/` | статичен клиент (`js/`, `css/`, `index.html`) + тестове (`test/`) |
+| `frontend/` | static client (`js/`, `css/`, `index.html`) + tests (`test/`) |
 | `backend/` | REST API (`public/`, `src/`, `sql/schema.sql`, `scripts/migrate.php`) |
-| `infra/` | конфигурация за облачно разполагане (по избор) |
-| `README.md` | пълна документация и архитектура |
+| `infra/` | cloud-deployment configuration (optional) |
+| `README.md` | full documentation and architecture |
 
-## Стартиране (локално, без външни услуги)
+## Running locally (no external services)
 
-1. **MariaDB/MySQL:** `docker compose up -d` (или локален сървър на `:3306`)
+1. **MariaDB/MySQL:** `docker compose up -d` (or a local server on `:3306`)
 2. **Backend:**
    ```bash
    cd backend
@@ -76,14 +72,14 @@ Two deployment modes are first-class:
    cd frontend/js && cp config.example.js config.js
    cd .. && php -S localhost:5173
    ```
-4. Отворете **http://localhost:5173** — първият регистриран акаунт е администратор.
+4. Open **http://localhost:5173** — the first registered account becomes admin.
 
-**Тестове:** `cd frontend && npm test`
+**Tests:** `cd frontend && npm test`
 
-## Забележки
+## Notes
 
-- Не са нужни никакви API ключове или външни услуги — всичко работи локално.
-- Снимка с GPS в EXIF се появява на картата веднага след качване; снимка без GPS може да се геотагне ръчно през редактора („Pick on map“).
+- No API keys or external services are required — everything runs locally.
+- A photo with GPS in EXIF appears on the map immediately after upload; a photo without GPS can be geotagged manually through the "Pick on map" editor.
 
 ## AWS architecture
 
