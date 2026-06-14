@@ -7,3 +7,5 @@ output "lambda_function"         { value = aws_lambda_function.image_processor.f
 output "vpc_id"                  { value = aws_vpc.main.id }
 output "private_subnet_ids"      { value = aws_subnet.private[*].id }
 output "bastion_instance_id"     { value = aws_instance.bastion.id }
+output "frontend_bucket"         { value = aws_s3_bucket.frontend.bucket }
+output "frontend_url"            { value = "https://${aws_cloudfront_distribution.frontend.domain_name}" }
