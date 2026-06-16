@@ -57,29 +57,78 @@ Two deployment modes are first-class:
 | `infra/` | cloud-deployment configuration (optional) |
 | `README.md` | full documentation and architecture |
 
-## Running locally (no external services)
+## Running locally with XAMPP (no external services)
 
-1. **MariaDB/MySQL:** `docker compose up -d` (or a local server on `:3306`)
-2. **Backend:**
-   ```bash
+[XAMPP](https://www.apachefriends.org/) bundles Apache, PHP, and MariaDB into a
+single installer — the only dependency you need for local development.
+Instructions below assume XAMPP is installed at `C:\xampp` (Windows default);
+adjust paths if yours is elsewhere (e.g. `D:\xampp`).
+
+### One-time setup
+
+1. **Install XAMPP**, open the Control Panel, and click **Start** next to both
+   **Apache** and **MySQL**. Both rows should turn green.
+
+2. **Place the project under Apache's web root.** Apache serves files from
+   `<xampp>\htdocs\`; the project must end up at `<xampp>\htdocs\w26\pic2map\`
+   to match `APP_URL` in `.env.example`. Either copy the repo there, or create
+   a directory junction so edits stay in one place — from an **admin Command
+   Prompt**:
+   ```
+   mkdir C:\xampp\htdocs\w26
+   mklink /D C:\xampp\htdocs\w26\pic2map C:\path\to\your\clone
+   ```
+
+3. **Enable PHP extensions.** Open `<xampp>\php\php.ini` and confirm these
+   lines are uncommented (no leading `;`): `pdo_mysql`, `gd`, `exif`,
+   `fileinfo`, `mbstring`, `openssl`. Stop and Start Apache from the Control
+   Panel after editing so it reloads `php.ini`.
+
+4. **Create the database and user.** Open
+   [`http://localhost/phpmyadmin/`](http://localhost/phpmyadmin/) →
+   **User accounts** → **Add user account**:
+   - User name `pic2map`, host `localhost`, password `pic2map`
+   - Tick **Create database with same name and grant all privileges**
+   - Scroll down, click **Go**
+
+### Per-clone config
+
+5. **Backend `.env`:**
+   ```
    cd backend
    cp .env.example .env
-   php scripts/migrate.php
-   php -S localhost:4000 -t public public/router.php
    ```
-3. **Frontend:**
-   ```bash
-   cd frontend/js && cp config.example.js config.js
-   cd .. && php -S localhost:5173
+   Defaults already match the user/database you just created. No edits needed.
+
+6. **Frontend `config.js`:**
    ```
-4. Open **http://localhost:5173** — the first registered account becomes admin.
+   cd frontend/js
+   cp config.example.js config.js
+   ```
+   Defaults already point at the XAMPP-served backend. No edits needed.
+
+7. **Run the database migration** (creates the tables in the empty database):
+   ```
+   C:\xampp\php\php.exe backend\scripts\migrate.php
+   ```
+   Expected output ends with `✓ schema applied`.
+
+### Open the app
+
+Browse to **[http://localhost/w26/pic2map/frontend/](http://localhost/w26/pic2map/frontend/)** —
+the first registered account becomes admin.
 
 **Tests:** `cd frontend && npm test`
 
 ## Notes
 
 - No API keys or external services are required — everything runs locally.
-- A photo with GPS in EXIF appears on the map immediately after upload; a photo without GPS can be geotagged manually through the "Pick on map" editor.
+- A photo with GPS in EXIF appears on the map immediately after upload; a photo
+  without GPS can be geotagged manually through the "Pick on map" editor.
+- A `docker-compose.yml` is included as an alternative DB-only setup
+  (`docker compose up -d` runs MariaDB on `127.0.0.1:3306` with the same
+  credentials). If you go this route, skip XAMPP's MySQL but still use XAMPP's
+  Apache + PHP for the application itself.
 
 ## AWS architecture
 

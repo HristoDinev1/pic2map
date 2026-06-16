@@ -4,7 +4,9 @@
 // Copy this file to config.js (gitignored) and fill in your values:
 //   cd frontend/js && cp config.example.js config.js
 window.PIC2MAP_CONFIG = {
-  apiBase: 'http://localhost:4000/api',
+  // XAMPP-served backend by default. If you run the PHP built-in server
+  // instead (`php -S localhost:4000 ...`), change this to 'http://localhost:4000/api'.
+  apiBase: 'http://localhost/w26/pic2map/backend/public/api',
 
   // Auth driver: 'local' (self-hosted accounts on this backend, no AWS needed)
   // or 'cognito' (original Amazon Cognito flow). When omitted, 'cognito' is
