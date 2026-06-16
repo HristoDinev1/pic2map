@@ -78,12 +78,25 @@ export function renderGalleryPage(node) {
       : '';
   }
 
+  let pendingDeepLink = readPhotoQueryParam();
+
+  function maybeOpenDeepLink() {
+    if (!pendingDeepLink) return;
+    const target = photos.find((p) => String(p.id) === String(pendingDeepLink));
+    if (!target) return;
+    pendingDeepLink = null;
+    // Strip the ?photo=… so a later refresh doesn't re-open the editor.
+    history.replaceState(null, '', '#/gallery');
+    openPhotoEditor(target, load);
+  }
+
   function load() {
     return api.get('/photos')
       .then((r) => {
         photos = r.photos;
         errorLine.style.display = 'none';
         rerender();
+        maybeOpenDeepLink();
         // While the Lambda is still working on anything, refresh automatically
         // so thumbnails/GPS appear without the user mashing F5.
         const processing = photos.some((p) => p.processState !== 'READY' && p.processState !== 'FAILED');
@@ -91,6 +104,11 @@ export function renderGalleryPage(node) {
         if (processing && !disposed) refreshTimer = setTimeout(load, REFRESH_WHILE_PROCESSING_MS);
       })
       .catch((e) => { errorLine.textContent = e.message; errorLine.style.display = ''; statsLine.textContent = ''; });
+  }
+
+  function readPhotoQueryParam() {
+    const m = location.hash.match(/[?&]photo=([^&]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
   }
 
   const download = async (kind) => {

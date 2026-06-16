@@ -1,6 +1,7 @@
 import { el, mount } from '../dom.js';
 import { api } from '../api.js';
 import { authStore } from '../auth-store.js';
+import { navigate } from '../router.js';
 import { CustomMap } from '../map/custom-map.js';
 import { openPhotoEditor } from '../components/photo-editor.js';
 
@@ -44,18 +45,24 @@ export function renderMapPage(node) {
     zoom: 4,
     popupActions: (photo) => {
       const me = authStore.profile && authStore.profile.email;
+      const isMine = me && photo.ownerEmail === me;
       const buttons = [];
       const full = photo.urls && (photo.urls.large || photo.urls.original || photo.urls.medium);
       if (full) {
         buttons.push(el('a', { class: 'btn btn-sm', href: full, target: '_blank', rel: 'noopener' }, 'Open'));
       }
-      if (me && photo.ownerEmail === me) {
+      if (isMine) {
+        buttons.push(el('button', {
+          class: 'btn btn-sm',
+          title: 'Jump to this photo in your gallery',
+          onclick: () => navigate(`/gallery?photo=${encodeURIComponent(photo.id)}`),
+        }, 'In gallery'));
         buttons.push(el('button', {
           class: 'btn btn-sm btn-primary',
           onclick: () => openPhotoEditor(photo, () => load()),
         }, 'Edit'));
       }
-      return buttons.length ? el('div', { class: 'row mt-1' }, buttons) : null;
+      return buttons.length ? el('div', { class: 'row mt-1', style: 'flex-wrap:wrap;gap:0.35rem' }, buttons) : null;
     },
   });
 

@@ -45,6 +45,20 @@ export function unproject(x, y, zoom) {
   return { lat, lng };
 }
 
+/** True if these markers fall within the cluster radius even at MAX_ZOOM —
+ *  i.e. they share (effectively) identical coordinates and zooming further
+ *  in would never separate them. */
+export function clusterAlwaysCollides(markers, radius = CLUSTER_RADIUS) {
+  if (markers.length < 2) return false;
+  const pts = markers.map((m) => project(m.latitude, m.longitude, MAX_ZOOM));
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) > radius) return false;
+    }
+  }
+  return true;
+}
+
 /** Greedy pixel-distance clustering — groups nearby markers into one bubble. */
 export function clusterPoints(points, radius = CLUSTER_RADIUS) {
   const used = new Array(points.length).fill(false);
@@ -528,26 +542,71 @@ export class CustomMap {
     });
   }
 
-  /** A cluster bubble — thumbnail of the first photo + count badge; click zooms to fit. */
+  /** A cluster bubble — thumbnail of the first photo + count badge.
+   *  Click zooms to fit, *unless* the points are so close together that they'd
+   *  re-cluster even at MAX_ZOOM — then we open a list popup instead so the
+   *  user can still see and act on each photo. */
   buildCluster(cluster) {
     const { x, y } = cluster;
     const first = cluster.points[0].marker;
     const thumb = first.urls && (first.urls.thumb || first.urls.medium);
+    const items = cluster.points.map((p) => p.marker);
+    const stuck = clusterAlwaysCollides(items);
     return el('button', {
       type: 'button',
       class: `map-photo-cluster${thumb ? '' : ' no-thumb'}`, style: `left:${x}px;top:${y}px`,
-      title: `${cluster.points.length} photos here — click to zoom in`,
-      'aria-label': `${cluster.points.length} photos here`,
+      title: stuck
+        ? `${items.length} photos at this exact spot — click to list`
+        : `${items.length} photos here — click to zoom in`,
+      'aria-label': `${items.length} photos here`,
       onclick: (e) => {
         e.stopPropagation();
-        const items = cluster.points.map((p) => p.marker);
+        if (stuck) { this.showClusterList(items, x, y); return; }
         const fitted = this.fitToMarkers(items, { maxZoom: Math.min(MAX_ZOOM, this.zoom + 4), padding: 80 });
         if (!fitted || this.zoom >= MAX_ZOOM) this.zoomAt(x, y, 1);
       },
     }, [
       thumb ? el('img', { src: thumb, alt: '', draggable: false, loading: 'lazy' }) : null,
-      el('span', { class: 'count' }, String(cluster.points.length)),
+      el('span', { class: 'count' }, String(items.length)),
     ]);
+  }
+
+  /** A scrollable list of photos sharing one location — used when zooming in
+   *  can't separate them. Each row shows a thumb + meta and the same actions
+   *  as the single-marker popup (provided via opts.popupActions). */
+  showClusterList(photos, x, y) {
+    this.closePopup();
+    this.closeHoverPopup();
+    const list = el('div', { class: 'cluster-list' });
+    for (const photo of photos) {
+      const thumb = photo.urls && (photo.urls.thumb || photo.urls.medium);
+      const row = el('div', { class: 'cluster-row' }, [
+        thumb
+          ? el('img', { class: 'cluster-row-thumb', src: thumb, alt: '', loading: 'lazy' })
+          : el('div', { class: 'cluster-row-thumb cluster-row-thumb-empty' }),
+        el('div', { class: 'cluster-row-body' }, [
+          el('div', { class: 'cluster-row-title', title: photo.title || 'Untitled' }, photo.title || 'Untitled'),
+          el('div', { class: 'cluster-row-sub' }, `by ${photo.ownerEmail || photo.ownerUsername || 'unknown'}`),
+          photo.capturedAt ? el('div', { class: 'cluster-row-sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`) : null,
+          this.opts.popupActions ? this.opts.popupActions(photo) : null,
+        ]),
+      ]);
+      // Click an empty area of the row → switch to the single-photo popup.
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('a, button, input, select, textarea')) return;
+        this.closePopup();
+        this.showPopup(photo, x, y);
+      });
+      list.appendChild(row);
+    }
+    const popup = el('div', { class: 'map-popup map-popup-list', style: `left:${x}px;top:${y}px`, 'data-photo-id': `cluster-${photos[0].id}` }, [
+      el('button', { class: 'close', type: 'button', 'aria-label': 'Close', onclick: (e) => { e.stopPropagation(); this.closePopup(); } }, '✕'),
+      el('div', { class: 'cluster-head' }, `${photos.length} photos at this spot`),
+      list,
+    ]);
+    popup.addEventListener('click', (e) => e.stopPropagation());
+    this.markerLayer.appendChild(popup);
+    this.popupEl = popup;
   }
 
   showPopup(photo, x, y) {
