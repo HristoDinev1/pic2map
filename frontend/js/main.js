@@ -4,6 +4,7 @@ import { renderAuthScreen } from './auth-screen.js';
 import { authStore } from './auth-store.js';
 import { auth } from './auth.js';
 import { mount, el } from './dom.js';
+import { initTheme } from './theme.js';
 
 import { renderMapPage } from './pages/map.js';
 import { renderGalleryPage } from './pages/gallery.js';
@@ -42,6 +43,7 @@ const navbarNode = document.getElementById('navbar');
 const appNode = document.getElementById('app');
 
 async function boot() {
+  initTheme();
   // Use the driver-aware facade — `cognito.isSignedIn()` would only inspect
   // the Cognito module's in-memory session and is wrong under AUTH_DRIVER=local.
   if (!auth.isSignedIn()) {
