@@ -1,4 +1,11 @@
 RewriteEngine On
+
+# Apache strips the Authorization header before PHP sees it. Re-expose it as
+# HTTP_AUTHORIZATION so Http::bearerToken() can read it (the PHP built-in dev
+# server passes it through natively, but Apache doesn't).
+RewriteCond %{HTTP:Authorization} ^(.+)$
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [QSA,L]
