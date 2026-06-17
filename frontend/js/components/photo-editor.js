@@ -127,7 +127,13 @@ export function openPhotoEditor(photo, onChange) {
       el('button', { class: 'btn-text', type: 'button', onclick: close, 'aria-label': 'Close' }, '✕'),
     ]),
     photo.urls.medium || photo.urls.thumb
-      ? el('img', { class: 'preview', src: photo.urls.medium || photo.urls.thumb, alt: photo.title })
+      ? el('img', {
+          class: 'preview preview-zoomable',
+          src: photo.urls.medium || photo.urls.thumb,
+          alt: photo.title,
+          title: 'Click to view full size',
+          onclick: () => openLightbox(photo),
+        })
       : null,
     titleInput,
     descInput,
@@ -151,4 +157,31 @@ export function openPhotoEditor(photo, onChange) {
 
   document.body.appendChild(overlay);
   titleInput.focus();
+}
+
+/** Fullscreen image viewer — click anywhere or hit Esc to dismiss. */
+function openLightbox(photo) {
+  const src =
+    (photo.urls && (photo.urls.large || photo.urls.original || photo.urls.medium || photo.urls.thumb)) || null;
+  if (!src) return;
+
+  function close() {
+    box.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+
+  const img = el('img', { src, alt: photo.title || '', class: 'lightbox-img' });
+  const box = el('div', {
+    class: 'lightbox',
+    role: 'dialog',
+    'aria-label': 'Full-size photo',
+    onclick: close,
+  }, img);
+  // Stop image clicks from closing instantly so users can right-click / drag /
+  // pinch — the surrounding background still closes on click.
+  img.addEventListener('click', (e) => e.stopPropagation());
+
+  document.body.appendChild(box);
+  document.addEventListener('keydown', onKey);
 }
