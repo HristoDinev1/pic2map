@@ -53,7 +53,7 @@ export function openPhotoEditor(photo, onChange) {
         onPick: (lat, lng) => {
           latInput.value = lat.toFixed(6);
           lngInput.value = lng.toFixed(6);
-          setMsg('Location picked — click "Set / update" to save.');
+          setMsg('Location picked — click "Save changes" to apply.');
         },
       });
       if (hasGps) picker.setPickMarker(photo.latitude, photo.longitude);
@@ -61,39 +61,46 @@ export function openPhotoEditor(photo, onChange) {
   }
 
   // ---- Actions -------------------------------------------------------------
-  async function saveMeta() {
-    try {
-      await api.patch(`/photos/${photo.id}`, {
-        title: titleInput.value,
-        description: descInput.value,
-        visibility: visibilitySelect.value,
-      });
-      setMsg('Saved'); onChange();
-    } catch (e) { setMsg(e.message, true); }
-  }
+  /** Persists every change in one shot: title/description/visibility via PATCH,
+   *  and the GPS coordinates via PUT (only when they actually changed — clears
+   *  to null when both fields were emptied). */
+  async function saveAll() {
+    const origLat = photo.latitude != null ? String(photo.latitude) : '';
+    const origLng = photo.longitude != null ? String(photo.longitude) : '';
+    const latStr = latInput.value.trim();
+    const lngStr = lngInput.value.trim();
+    const gpsChanged = latStr !== origLat || lngStr !== origLng;
 
-  async function saveGps(clearGps) {
-    try {
-      let body;
-      if (clearGps) {
-        body = { latitude: null, longitude: null };
+    let gpsBody = null;
+    if (gpsChanged) {
+      if (latStr === '' && lngStr === '') {
+        gpsBody = { latitude: null, longitude: null };
       } else {
-        const latitude = Number(latInput.value);
-        const longitude = Number(lngInput.value);
-        if (latInput.value.trim() === '' || lngInput.value.trim() === '' || !isFinite(latitude) || !isFinite(longitude)) {
-          setMsg('Enter numeric latitude and longitude (or pick on the map).', true);
+        const latitude = Number(latStr);
+        const longitude = Number(lngStr);
+        if (latStr === '' || lngStr === '' || !isFinite(latitude) || !isFinite(longitude)) {
+          setMsg('Enter numeric latitude and longitude (or pick on the map), or clear both to remove GPS.', true);
           return;
         }
         if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
           setMsg('Latitude must be −90…90 and longitude −180…180.', true);
           return;
         }
-        body = { latitude, longitude };
+        gpsBody = { latitude, longitude };
       }
-      await api.put(`/photos/${photo.id}/gps`, body);
-      if (clearGps) { latInput.value = ''; lngInput.value = ''; if (picker) picker.setPickMarker(null, null); }
-      setMsg(clearGps ? 'GPS removed' : 'GPS updated — the photo is now on the map');
-      onChange();
+    }
+
+    try {
+      await api.patch(`/photos/${photo.id}`, {
+        title: titleInput.value,
+        description: descInput.value,
+        visibility: visibilitySelect.value,
+      });
+      if (gpsBody) {
+        await api.put(`/photos/${photo.id}/gps`, gpsBody);
+        if (gpsBody.latitude === null && picker) picker.setPickMarker(null, null);
+      }
+      setMsg('Saved'); onChange();
     } catch (e) { setMsg(e.message, true); }
   }
 
@@ -125,7 +132,6 @@ export function openPhotoEditor(photo, onChange) {
     titleInput,
     descInput,
     visibilitySelect,
-    el('button', { class: 'btn btn-primary', onclick: saveMeta }, 'Save details'),
     el('div', { class: 'section' }, [
       el('div', { class: 'row-between' }, [
         el('p', { style: 'font-weight:500;font-size:0.875rem;margin:0' }, 'GPS coordinates'),
@@ -133,11 +139,10 @@ export function openPhotoEditor(photo, onChange) {
       ]),
       el('div', { class: 'row mt-1' }, [latInput, lngInput]),
       pickerWrap,
-      el('div', { class: 'row mt-1' }, [
-        el('button', { class: 'btn btn-success', onclick: () => saveGps(false) }, 'Set / update'),
-        el('button', { class: 'btn', onclick: () => saveGps(true) }, 'Remove'),
-      ]),
+      el('p', { class: 'muted', style: 'font-size:0.75rem;margin:0.4rem 0 0' },
+        'Clear both fields to remove GPS from this photo.'),
     ]),
+    el('button', { class: 'btn btn-primary', style: 'width:100%', onclick: saveAll }, 'Save changes'),
     el('div', { class: 'row-between section' }, [
       el('button', { class: 'btn-text-danger', onclick: remove }, 'Delete photo'),
       el('span', {}, [msgSpan, errSpan]),
