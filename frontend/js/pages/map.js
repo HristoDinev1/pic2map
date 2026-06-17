@@ -112,12 +112,18 @@ export function renderMapPage(node) {
   function buildHoverShortcut(photo) {
     const me = authStore.profile && authStore.profile.email;
     if (!me || photo.ownerEmail !== me) return null;
-    return el('a', {
+    return el('button', {
       class: 'btn btn-sm btn-primary',
-      href: `#/gallery?photo=${encodeURIComponent(photo.id)}`,
-      title: 'Open this photo in your gallery to edit it',
+      type: 'button',
+      title: 'Edit this photo',
       style: 'width:100%;justify-content:center',
-    }, 'Edit in gallery');
+      onclick: (e) => {
+        e.stopPropagation();
+        // Hover popup auto-closes when the cursor leaves; the editor modal
+        // overlays the whole map so the cursor never reaches the popup.
+        openPhotoEditor(photo, () => load());
+      },
+    }, 'Edit photo');
   }
 
   const map = new CustomMap(mapWrap, {
