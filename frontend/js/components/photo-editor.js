@@ -106,6 +106,27 @@ export function openPhotoEditor(photo, onChange) {
     } catch (e) { setMsg(e.message, true); }
   }
 
+  async function exportSingle(kind, withUrl) {
+    try {
+      const params = new URLSearchParams({ ids: photo.id });
+      if (withUrl) params.set('urls', '1');
+      const res = await fetch(`${api.base}/transfer/export.${kind}?${params.toString()}`, {
+        headers: await api.authHeader(),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const safe = (photo.title || 'photo').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'photo';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${safe}.${kind}`; a.click();
+      URL.revokeObjectURL(url);
+      setMsg(`Exported as ${kind.toUpperCase()}`);
+    } catch (e) { setMsg(e.message, true); }
+  }
+
   function close() {
     if (picker) picker.destroy();
     overlay.remove();
@@ -136,6 +157,15 @@ export function openPhotoEditor(photo, onChange) {
       el('div', { class: 'row mt-1' }, [
         el('button', { class: 'btn btn-success', onclick: () => saveGps(false) }, 'Set / update'),
         el('button', { class: 'btn', onclick: () => saveGps(true) }, 'Remove'),
+      ]),
+    ]),
+    el('div', { class: 'section' }, [
+      el('p', { style: 'font-weight:500;font-size:0.875rem;margin:0 0 0.4rem' }, 'Export this photo'),
+      el('div', { class: 'row', style: 'flex-wrap:wrap;gap:0.4rem' }, [
+        el('button', { class: 'btn btn-sm', type: 'button', onclick: () => exportSingle('json', false) }, 'JSON'),
+        el('button', { class: 'btn btn-sm', type: 'button', onclick: () => exportSingle('csv', false) }, 'CSV'),
+        el('button', { class: 'btn btn-sm', type: 'button', title: 'Include a time-limited download URL', onclick: () => exportSingle('json', true) }, 'JSON + URL'),
+        el('button', { class: 'btn btn-sm', type: 'button', title: 'Include a time-limited download URL', onclick: () => exportSingle('csv', true) }, 'CSV + URL'),
       ]),
     ]),
     el('div', { class: 'row-between section' }, [

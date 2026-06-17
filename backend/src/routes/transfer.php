@@ -11,15 +11,31 @@ return function (Router $r): void {
         return in_array($v, ['1', 'true', 'yes'], true);
     };
 
-    $ownExportRows = function (string $userId, bool $withUrls): array {
-        $rows = Db::query(
-            "SELECT p.title, p.latitude, p.longitude, u.username AS owner,
-                    p.created_at AS uploadDate, p.captured_at AS captureDate,
-                    p.s3_key_original
-             FROM photos p JOIN users u ON u.id = p.owner_id
-             WHERE p.owner_id = ? ORDER BY p.created_at DESC",
-            [$userId]
-        );
+    // Optional `?ids=A,B,C` narrows the export to a specific subset (used by
+    // the gallery's per-photo export). IDs that don't belong to the caller are
+    // silently dropped — same access rules as the unfiltered list.
+    $idFilterFromQuery = function (): array {
+        $raw = (string) ($_GET['ids'] ?? '');
+        if ($raw === '') return [];
+        $ids = array_values(array_filter(array_map('trim', explode(',', $raw)), fn($s) => $s !== ''));
+        return array_slice($ids, 0, 500);
+    };
+
+    $ownExportRows = function (string $userId, bool $withUrls, array $idFilter): array {
+        $sql = "SELECT p.title, p.latitude, p.longitude, u.username AS owner,
+                       p.created_at AS uploadDate, p.captured_at AS captureDate,
+                       p.s3_key_original
+                FROM photos p JOIN users u ON u.id = p.owner_id
+                WHERE p.owner_id = ?";
+        $params = [$userId];
+        if ($idFilter) {
+            $placeholders = implode(',', array_fill(0, count($idFilter), '?'));
+            $sql .= " AND p.id IN ($placeholders)";
+            $params = array_merge($params, $idFilter);
+        }
+        $sql .= ' ORDER BY p.created_at DESC';
+        $rows = Db::query($sql, $params);
+
         return array_map(function ($row) use ($withUrls) {
             $key = $row['s3_key_original'] ?? null;
             unset($row['s3_key_original']);
@@ -29,18 +45,18 @@ return function (Router $r): void {
     };
 
     // ---- EXPORT JSON ----
-    $r->get('/transfer/export.json', function () use ($ownExportRows, $wantsUrls) {
+    $r->get('/transfer/export.json', function () use ($ownExportRows, $wantsUrls, $idFilterFromQuery) {
         $user = Auth::authenticate();
-        $rows = $ownExportRows($user['id'], $wantsUrls());
+        $rows = $ownExportRows($user['id'], $wantsUrls(), $idFilterFromQuery());
         header('Content-Disposition: attachment; filename="pic2map-export.json"');
         Http::json(['exportedAt' => gmdate('c'), 'count' => count($rows), 'photos' => $rows]);
     });
 
     // ---- EXPORT CSV ----
-    $r->get('/transfer/export.csv', function () use ($ownExportRows, $FIELDS, $wantsUrls) {
+    $r->get('/transfer/export.csv', function () use ($ownExportRows, $FIELDS, $wantsUrls, $idFilterFromQuery) {
         $user = Auth::authenticate();
         $withUrls = $wantsUrls();
-        $rows = $ownExportRows($user['id'], $withUrls);
+        $rows = $ownExportRows($user['id'], $withUrls, $idFilterFromQuery());
         $fields = $withUrls ? array_merge($FIELDS, ['imageUrl']) : $FIELDS;
 
         $out = fopen('php://temp', 'r+');
