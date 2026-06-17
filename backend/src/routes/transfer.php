@@ -5,33 +5,48 @@ declare(strict_types=1);
 return function (Router $r): void {
     $FIELDS = ['title', 'latitude', 'longitude', 'owner', 'uploadDate', 'captureDate'];
 
-    $ownExportRows = function (string $userId): array {
-        return Db::query(
+    // `?urls=1` opts the caller into a time-limited download URL per photo.
+    $wantsUrls = function (): bool {
+        $v = strtolower((string) ($_GET['urls'] ?? ''));
+        return in_array($v, ['1', 'true', 'yes'], true);
+    };
+
+    $ownExportRows = function (string $userId, bool $withUrls): array {
+        $rows = Db::query(
             "SELECT p.title, p.latitude, p.longitude, u.username AS owner,
-                    p.created_at AS uploadDate, p.captured_at AS captureDate
+                    p.created_at AS uploadDate, p.captured_at AS captureDate,
+                    p.s3_key_original
              FROM photos p JOIN users u ON u.id = p.owner_id
              WHERE p.owner_id = ? ORDER BY p.created_at DESC",
             [$userId]
         );
+        return array_map(function ($row) use ($withUrls) {
+            $key = $row['s3_key_original'] ?? null;
+            unset($row['s3_key_original']);
+            if ($withUrls) $row['imageUrl'] = Storage::resolveUrl($key);
+            return $row;
+        }, $rows);
     };
 
     // ---- EXPORT JSON ----
-    $r->get('/transfer/export.json', function () use ($ownExportRows) {
+    $r->get('/transfer/export.json', function () use ($ownExportRows, $wantsUrls) {
         $user = Auth::authenticate();
-        $rows = $ownExportRows($user['id']);
+        $rows = $ownExportRows($user['id'], $wantsUrls());
         header('Content-Disposition: attachment; filename="pic2map-export.json"');
         Http::json(['exportedAt' => gmdate('c'), 'count' => count($rows), 'photos' => $rows]);
     });
 
     // ---- EXPORT CSV ----
-    $r->get('/transfer/export.csv', function () use ($ownExportRows, $FIELDS) {
+    $r->get('/transfer/export.csv', function () use ($ownExportRows, $FIELDS, $wantsUrls) {
         $user = Auth::authenticate();
-        $rows = $ownExportRows($user['id']);
+        $withUrls = $wantsUrls();
+        $rows = $ownExportRows($user['id'], $withUrls);
+        $fields = $withUrls ? array_merge($FIELDS, ['imageUrl']) : $FIELDS;
 
         $out = fopen('php://temp', 'r+');
-        fputcsv($out, $FIELDS);
+        fputcsv($out, $fields);
         foreach ($rows as $row) {
-            fputcsv($out, array_map(fn($f) => $row[$f] ?? '', $FIELDS));
+            fputcsv($out, array_map(fn($f) => $row[$f] ?? '', $fields));
         }
         rewind($out);
         $csv = stream_get_contents($out);

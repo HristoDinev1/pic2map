@@ -111,9 +111,20 @@ export function renderGalleryPage(node) {
     return m ? decodeURIComponent(m[1]) : null;
   }
 
+  const includeUrls = el('input', {
+    type: 'checkbox', id: 'export-include-urls',
+    title: 'Add a time-limited download URL for each photo to the export',
+  });
+  const includeUrlsLabel = el('label', {
+    for: 'export-include-urls',
+    class: 'muted',
+    style: 'display:inline-flex;align-items:center;gap:0.3rem;font-size:0.8125rem;cursor:pointer',
+  }, [includeUrls, 'Include image URL']);
+
   const download = async (kind) => {
     try {
-      const res = await fetch(`${api.base}/transfer/export.${kind}`, { headers: await api.authHeader() });
+      const qs = includeUrls.checked ? '?urls=1' : '';
+      const res = await fetch(`${api.base}/transfer/export.${kind}${qs}`, { headers: await api.authHeader() });
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -126,7 +137,8 @@ export function renderGalleryPage(node) {
   mount(node, [
     el('div', { class: 'row-between mb-2', style: 'flex-wrap:wrap;gap:0.5rem' }, [
       el('h1', { style: 'margin:0' }, 'My gallery'),
-      el('div', { class: 'row', style: 'font-size:0.875rem' }, [
+      el('div', { class: 'row', style: 'font-size:0.875rem;flex-wrap:wrap;gap:0.5rem' }, [
+        includeUrlsLabel,
         el('button', { class: 'btn-text', onclick: () => download('json') }, 'Export JSON'),
         el('button', { class: 'btn-text', onclick: () => download('csv') }, 'Export CSV'),
       ]),
