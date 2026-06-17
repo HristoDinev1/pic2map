@@ -17,8 +17,6 @@ export function renderMapPage(node) {
   const status = el('p', { class: 'error', style: 'display:none' });
   const countLine = el('span', { class: 'muted' }, 'Loading photos…');
   const mapWrap = el('div', { class: 'map-wrap' });
-  const clusterPanel = el('aside', { class: 'cluster-panel', 'aria-hidden': 'true' });
-  const stage = el('div', { class: 'map-stage' }, [mapWrap, clusterPanel]);
 
   const ownerFilter = el('select', { 'aria-label': 'Whose photos', onchange: applyFilters }, [
     el('option', { value: 'all' }, 'Everyone'),
@@ -38,15 +36,16 @@ export function renderMapPage(node) {
       el('div', { class: 'row', style: 'flex-wrap:wrap' }, [ownerFilter, titleFilter, fitBtn, refreshBtn]),
     ]),
     status,
-    stage,
+    mapWrap,
     el('p', { class: 'mt-1', style: 'font-size:0.8125rem' }, countLine),
   ]);
 
-  function closeClusterPanel() {
-    stage.classList.remove('split');
-    clusterPanel.setAttribute('aria-hidden', 'true');
-    clear(clusterPanel);
+  let clusterOverlay = null;
+  function closeClusterModal() {
+    if (clusterOverlay) { clusterOverlay.remove(); clusterOverlay = null; }
+    document.removeEventListener('keydown', onClusterKey);
   }
+  function onClusterKey(e) { if (e.key === 'Escape') closeClusterModal(); }
 
   function buildPopupActions(photo) {
     // Defined as a standalone helper so both the in-map popup and the side
@@ -70,44 +69,47 @@ export function renderMapPage(node) {
     return buttons.length ? el('div', { class: 'row mt-1', style: 'flex-wrap:wrap;gap:0.35rem' }, buttons) : null;
   }
 
-  function openClusterPanel(photos) {
-    clear(clusterPanel);
-    clusterPanel.appendChild(el('div', { class: 'cluster-panel-head' }, [
-      el('div', {}, [
-        el('div', { class: 'cluster-panel-eyebrow' }, 'PHOTOS HERE'),
-        el('div', { class: 'cluster-panel-title' }, `${photos.length} at this spot`),
-      ]),
-      el('button', {
-        class: 'cluster-panel-close', type: 'button', 'aria-label': 'Close',
-        onclick: closeClusterPanel,
-      }, '✕'),
-    ]));
-    const list = el('div', { class: 'cluster-panel-list' });
+  function openClusterModal(photos) {
+    closeClusterModal();
+    const list = el('div', { class: 'cluster-modal-list' });
     for (const photo of photos) {
       const thumb = photo.urls && (photo.urls.thumb || photo.urls.medium);
-      list.appendChild(el('div', { class: 'cluster-panel-row' }, [
+      list.appendChild(el('div', { class: 'cluster-modal-row' }, [
         thumb
-          ? el('img', { class: 'cluster-panel-thumb', src: thumb, alt: '', loading: 'lazy' })
-          : el('div', { class: 'cluster-panel-thumb cluster-panel-thumb-empty' }),
-        el('div', { class: 'cluster-panel-body' }, [
-          el('div', { class: 'cluster-panel-row-title', title: photo.title || 'Untitled' }, photo.title || 'Untitled'),
-          el('div', { class: 'cluster-panel-row-sub' }, `by ${photo.ownerEmail || photo.ownerUsername || 'unknown'}`),
+          ? el('img', { class: 'cluster-modal-thumb', src: thumb, alt: '', loading: 'lazy' })
+          : el('div', { class: 'cluster-modal-thumb cluster-modal-thumb-empty' }),
+        el('div', { class: 'cluster-modal-body' }, [
+          el('div', { class: 'cluster-modal-title', title: photo.title || 'Untitled' }, photo.title || 'Untitled'),
+          el('div', { class: 'cluster-modal-sub' }, `by ${photo.ownerEmail || photo.ownerUsername || 'unknown'}`),
           photo.capturedAt
-            ? el('div', { class: 'cluster-panel-row-sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`)
+            ? el('div', { class: 'cluster-modal-sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`)
             : null,
-          el('div', { class: 'cluster-panel-row-sub' },
+          el('div', { class: 'cluster-modal-sub' },
             `${photo.latitude.toFixed(5)}, ${photo.longitude.toFixed(5)}`),
           buildPopupActions(photo),
         ]),
       ]));
     }
-    clusterPanel.appendChild(list);
-    clusterPanel.setAttribute('aria-hidden', 'false');
-    stage.classList.add('split');
+    const modal = el('div', {
+      class: 'modal modal-wide cluster-modal',
+      onclick: (e) => e.stopPropagation(),
+    }, [
+      el('div', { class: 'row-between' }, [
+        el('div', {}, [
+          el('div', { class: 'cluster-modal-eyebrow' }, 'PHOTOS HERE'),
+          el('h2', { style: 'margin:0' }, `${photos.length} photos at this spot`),
+        ]),
+        el('button', { class: 'btn-text', type: 'button', onclick: closeClusterModal, 'aria-label': 'Close' }, '✕'),
+      ]),
+      list,
+    ]);
+    clusterOverlay = el('div', { class: 'modal-overlay', onclick: closeClusterModal }, modal);
+    document.body.appendChild(clusterOverlay);
+    document.addEventListener('keydown', onClusterKey);
   }
 
-  // Close the panel when navigating away from the map page.
-  window.addEventListener('pic2map:navigated', () => closeClusterPanel(), { once: true });
+  // Close the modal when navigating away from the map page.
+  window.addEventListener('pic2map:navigated', () => closeClusterModal(), { once: true });
 
   function buildHoverShortcut(photo) {
     const me = authStore.profile && authStore.profile.email;
@@ -130,7 +132,7 @@ export function renderMapPage(node) {
     center: [42.6977, 23.3219],
     zoom: 4,
     popupActions: buildPopupActions,
-    onClusterClick: openClusterPanel,
+    onClusterClick: openClusterModal,
     hoverShortcut: buildHoverShortcut,
   });
 

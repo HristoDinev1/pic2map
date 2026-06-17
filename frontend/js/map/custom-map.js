@@ -541,6 +541,10 @@ export class CustomMap {
       class: `map-photo-cluster${thumb ? '' : ' no-thumb'}`, style: `left:${x}px;top:${y}px`,
       title: `${items.length} photos — click to view the list`,
       'aria-label': `${items.length} photos here`,
+      // The viewport claims pointer capture for panning on pointerdown, which
+      // can swallow the synthesized click. Stop the pointerdown from reaching
+      // the viewport so click reliably fires on this button.
+      onpointerdown: (e) => e.stopPropagation(),
       onclick: (e) => {
         e.stopPropagation();
         if (typeof this.opts.onClusterClick === 'function') {
