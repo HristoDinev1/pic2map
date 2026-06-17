@@ -45,20 +45,6 @@ export function unproject(x, y, zoom) {
   return { lat, lng };
 }
 
-/** True if these markers fall within the cluster radius even at MAX_ZOOM —
- *  i.e. they share (effectively) identical coordinates and zooming further
- *  in would never separate them. */
-export function clusterAlwaysCollides(markers, radius = CLUSTER_RADIUS) {
-  if (markers.length < 2) return false;
-  const pts = markers.map((m) => project(m.latitude, m.longitude, MAX_ZOOM));
-  for (let i = 0; i < pts.length; i++) {
-    for (let j = i + 1; j < pts.length; j++) {
-      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) > radius) return false;
-    }
-  }
-  return true;
-}
-
 /** Greedy pixel-distance clustering — groups nearby markers into one bubble. */
 export function clusterPoints(points, radius = CLUSTER_RADIUS) {
   const used = new Array(points.length).fill(false);
@@ -543,26 +529,22 @@ export class CustomMap {
   }
 
   /** A cluster bubble — thumbnail of the first photo + count badge.
-   *  Click zooms to fit, *unless* the points are so close together that they'd
-   *  re-cluster even at MAX_ZOOM. In that case we hand the photo list off to
-   *  opts.onClusterStuck (the page renders it in a side-panel). */
+   *  Click hands the photo list off to opts.onClusterClick (the page renders
+   *  it in a side panel). Falls back to zoom-to-fit only if no handler is set. */
   buildCluster(cluster) {
     const { x, y } = cluster;
     const first = cluster.points[0].marker;
     const thumb = first.urls && (first.urls.thumb || first.urls.medium);
     const items = cluster.points.map((p) => p.marker);
-    const stuck = clusterAlwaysCollides(items);
     return el('button', {
       type: 'button',
       class: `map-photo-cluster${thumb ? '' : ' no-thumb'}`, style: `left:${x}px;top:${y}px`,
-      title: stuck
-        ? `${items.length} photos at this exact spot — click to view`
-        : `${items.length} photos here — click to zoom in`,
+      title: `${items.length} photos — click to view the list`,
       'aria-label': `${items.length} photos here`,
       onclick: (e) => {
         e.stopPropagation();
-        if (stuck && typeof this.opts.onClusterStuck === 'function') {
-          this.opts.onClusterStuck(items);
+        if (typeof this.opts.onClusterClick === 'function') {
+          this.opts.onClusterClick(items);
           return;
         }
         const fitted = this.fitToMarkers(items, { maxZoom: Math.min(MAX_ZOOM, this.zoom + 4), padding: 80 });

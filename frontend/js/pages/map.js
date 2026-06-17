@@ -113,7 +113,7 @@ export function renderMapPage(node) {
     center: [42.6977, 23.3219],
     zoom: 4,
     popupActions: buildPopupActions,
-    onClusterStuck: openClusterPanel,
+    onClusterClick: openClusterPanel,
   });
 
   function applyFilters() {
