@@ -539,7 +539,10 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .map-popup .close:hover { background: var(--surface-3); color: var(--text); }
 .map-popup-hover {
-  pointer-events: none;
+  /* Interactive on purpose — the shortcut button inside needs to be clickable.
+     A short close-delay (see scheduleHoverClose in custom-map.js) lets the
+     cursor cross from the marker to the popup without it disappearing. */
+  pointer-events: auto;
   width: 14rem;
   z-index: 5;
   animation: slideUp 0.12s var(--ease-out);

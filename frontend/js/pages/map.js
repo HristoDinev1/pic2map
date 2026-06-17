@@ -109,11 +109,23 @@ export function renderMapPage(node) {
   // Close the panel when navigating away from the map page.
   window.addEventListener('pic2map:navigated', () => closeClusterPanel(), { once: true });
 
+  function buildHoverShortcut(photo) {
+    const me = authStore.profile && authStore.profile.email;
+    if (!me || photo.ownerEmail !== me) return null;
+    return el('a', {
+      class: 'btn btn-sm btn-primary',
+      href: `#/gallery?photo=${encodeURIComponent(photo.id)}`,
+      title: 'Open this photo in your gallery to edit it',
+      style: 'width:100%;justify-content:center',
+    }, 'Edit in gallery');
+  }
+
   const map = new CustomMap(mapWrap, {
     center: [42.6977, 23.3219],
     zoom: 4,
     popupActions: buildPopupActions,
     onClusterClick: openClusterPanel,
+    hoverShortcut: buildHoverShortcut,
   });
 
   function applyFilters() {

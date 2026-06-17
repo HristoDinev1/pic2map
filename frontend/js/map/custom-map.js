@@ -508,7 +508,7 @@ export class CustomMap {
     const thumb = marker.urls && (marker.urls.thumb || marker.urls.medium);
     const hoverHandlers = {
       onmouseenter: () => this.showHoverPopup(marker, x, y),
-      onmouseleave: () => this.closeHoverPopup(),
+      onmouseleave: () => this.scheduleHoverClose(),
     };
     if (thumb) {
       return el('button', {
@@ -578,18 +578,41 @@ export class CustomMap {
     if (this.popupEl) { this.popupEl.remove(); this.popupEl = null; }
   }
 
-  /** Lightweight tooltip-style preview shown while hovering a marker. */
+  /** Cancel a queued hover close — used when the cursor moves from the marker
+   *  onto the popup itself, so the user can actually click its action button. */
+  clearHoverCloseTimer() {
+    if (this.hoverCloseTimer) { clearTimeout(this.hoverCloseTimer); this.hoverCloseTimer = null; }
+  }
+
+  /** Queue a close after a short grace period so the cursor can travel from
+   *  the marker to the popup without it disappearing under it. */
+  scheduleHoverClose() {
+    this.clearHoverCloseTimer();
+    this.hoverCloseTimer = setTimeout(() => this.closeHoverPopup(), 160);
+  }
+
+  /** Lightweight tooltip-style preview shown while hovering a marker.
+   *  Optionally shows a single shortcut button via opts.hoverShortcut(photo). */
   showHoverPopup(photo, x, y) {
+    this.clearHoverCloseTimer();
     if (this.popupEl && this.popupEl.dataset.photoId === photo.id) return;
+    if (this.hoverPopupEl && this.hoverPopupEl.dataset.photoId === photo.id) return;
     this.closeHoverPopup();
     const img = photo.urls && (photo.urls.medium || photo.urls.thumb);
-    const popup = el('div', { class: 'map-popup map-popup-hover', style: `left:${x}px;top:${y}px` }, [
+    const shortcut = typeof this.opts.hoverShortcut === 'function' ? this.opts.hoverShortcut(photo) : null;
+    const popup = el('div', {
+      class: 'map-popup map-popup-hover', style: `left:${x}px;top:${y}px`,
+      'data-photo-id': photo.id,
+      onmouseenter: () => this.clearHoverCloseTimer(),
+      onmouseleave: () => this.scheduleHoverClose(),
+    }, [
       img ? el('img', { src: img, alt: photo.title }) : null,
       el('div', { class: 'title' }, photo.title || 'Untitled'),
       el('div', { class: 'sub' }, `by ${photo.ownerEmail || photo.ownerUsername || 'unknown'}`),
       photo.description ? el('div', { class: 'sub desc' }, photo.description) : null,
       photo.capturedAt ? el('div', { class: 'sub' }, `Taken ${new Date(photo.capturedAt).toLocaleDateString()}`) : null,
       photo.createdAt ? el('div', { class: 'sub' }, `Uploaded ${new Date(photo.createdAt).toLocaleDateString()}`) : null,
+      shortcut ? el('div', { class: 'mt-1' }, shortcut) : null,
     ]);
     this.markerLayer.appendChild(popup);
     this.hoverPopupEl = popup;
