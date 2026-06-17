@@ -605,6 +605,12 @@ export class CustomMap {
       'data-photo-id': photo.id,
       onmouseenter: () => this.clearHoverCloseTimer(),
       onmouseleave: () => this.scheduleHoverClose(),
+      // The map widget grabs pointer capture on pointerdown to handle panning,
+      // which would otherwise swallow click events that originate inside this
+      // popup. Stop both events from reaching the viewport so its capture
+      // logic never engages for clicks on the shortcut button.
+      onpointerdown: (e) => e.stopPropagation(),
+      onclick: (e) => e.stopPropagation(),
     }, [
       img ? el('img', { src: img, alt: photo.title }) : null,
       el('div', { class: 'title' }, photo.title || 'Untitled'),
