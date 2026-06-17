@@ -11,9 +11,7 @@ return function (Router $r): void {
         return in_array($v, ['1', 'true', 'yes'], true);
     };
 
-    // Optional `?ids=A,B,C` narrows the export to a specific subset (used by
-    // the gallery's per-photo export). IDs that don't belong to the caller are
-    // silently dropped — same access rules as the unfiltered list.
+    // Optional `?ids=A,B,C` narrows the export to a specific subset.
     $idFilterFromQuery = function (): array {
         $raw = (string) ($_GET['ids'] ?? '');
         if ($raw === '') return [];
@@ -21,7 +19,33 @@ return function (Router $r): void {
         return array_slice($ids, 0, 500);
     };
 
-    $ownExportRows = function (string $userId, bool $withUrls, array $idFilter): array {
+    // Filters used by the gallery export modal: ?from=YYYY-MM-DD, ?to=YYYY-MM-DD
+    // (applied to capture date with upload-date fallback so a photo without
+    // EXIF still falls inside its actual upload window), plus visibility and
+    // a has-GPS toggle.
+    $filtersFromQuery = function (): array {
+        $parseDate = function (string $key, string $endOfDay) {
+            $raw = trim((string) ($_GET[$key] ?? ''));
+            if ($raw === '') return null;
+            $ts = strtotime($raw);
+            return $ts === false ? null : gmdate('Y-m-d ' . $endOfDay, $ts);
+        };
+        $from = $parseDate('from', '00:00:00');
+        $to   = $parseDate('to', '23:59:59');
+
+        $vis = strtoupper(trim((string) ($_GET['visibility'] ?? '')));
+        if (!in_array($vis, ['PUBLIC', 'PRIVATE'], true)) $vis = null;
+
+        $geoRaw = strtolower(trim((string) ($_GET['geo'] ?? '')));
+        $geo = match ($geoRaw) {
+            '1', 'true', 'yes', 'has', 'tagged' => true,
+            'no', 'none', 'missing' => false,
+            default => null,
+        };
+        return ['from' => $from, 'to' => $to, 'visibility' => $vis, 'geo' => $geo];
+    };
+
+    $ownExportRows = function (string $userId, bool $withUrls, array $idFilter, array $filters): array {
         $sql = "SELECT p.title, p.latitude, p.longitude, u.username AS owner,
                        p.created_at AS uploadDate, p.captured_at AS captureDate,
                        p.s3_key_original
@@ -33,6 +57,12 @@ return function (Router $r): void {
             $sql .= " AND p.id IN ($placeholders)";
             $params = array_merge($params, $idFilter);
         }
+        if (!empty($filters['from'])) { $sql .= ' AND COALESCE(p.captured_at, p.created_at) >= ?'; $params[] = $filters['from']; }
+        if (!empty($filters['to']))   { $sql .= ' AND COALESCE(p.captured_at, p.created_at) <= ?'; $params[] = $filters['to']; }
+        if (!empty($filters['visibility'])) { $sql .= ' AND p.visibility = ?'; $params[] = $filters['visibility']; }
+        if ($filters['geo'] === true)  $sql .= ' AND p.latitude IS NOT NULL';
+        if ($filters['geo'] === false) $sql .= ' AND p.latitude IS NULL';
+
         $sql .= ' ORDER BY p.created_at DESC';
         $rows = Db::query($sql, $params);
 
@@ -45,18 +75,18 @@ return function (Router $r): void {
     };
 
     // ---- EXPORT JSON ----
-    $r->get('/transfer/export.json', function () use ($ownExportRows, $wantsUrls, $idFilterFromQuery) {
+    $r->get('/transfer/export.json', function () use ($ownExportRows, $wantsUrls, $idFilterFromQuery, $filtersFromQuery) {
         $user = Auth::authenticate();
-        $rows = $ownExportRows($user['id'], $wantsUrls(), $idFilterFromQuery());
+        $rows = $ownExportRows($user['id'], $wantsUrls(), $idFilterFromQuery(), $filtersFromQuery());
         header('Content-Disposition: attachment; filename="pic2map-export.json"');
         Http::json(['exportedAt' => gmdate('c'), 'count' => count($rows), 'photos' => $rows]);
     });
 
     // ---- EXPORT CSV ----
-    $r->get('/transfer/export.csv', function () use ($ownExportRows, $FIELDS, $wantsUrls, $idFilterFromQuery) {
+    $r->get('/transfer/export.csv', function () use ($ownExportRows, $FIELDS, $wantsUrls, $idFilterFromQuery, $filtersFromQuery) {
         $user = Auth::authenticate();
         $withUrls = $wantsUrls();
-        $rows = $ownExportRows($user['id'], $withUrls, $idFilterFromQuery());
+        $rows = $ownExportRows($user['id'], $withUrls, $idFilterFromQuery(), $filtersFromQuery());
         $fields = $withUrls ? array_merge($FIELDS, ['imageUrl']) : $FIELDS;
 
         $out = fopen('php://temp', 'r+');
